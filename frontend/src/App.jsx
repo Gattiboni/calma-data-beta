@@ -150,7 +150,7 @@ function AcquisitionLine({series}){
             <Tooltip/>
             <Legend/>
             {Object.keys(chartData[0]||{}).filter(k=>k!=='date').map((k,i)=> (
-              <Line key={k} type="monotone" dataKey={k} strokeWidth={2} dot={false} stroke={["#2A8C99","#A8C6A6","#6D6A69","#C4A981","#3b82f6","#f59e0b","#ef4444"][i%7]} />
+              <Line key={k} type="monotone" dataKey={k} strokeWidth={2} dot={{r:2}} stroke={["#2A8C99","#A8C6A6","#6D6A69","#C4A981","#3b82f6","#f59e0b","#ef4444"][i%7]} />
             ))}
           </LineChart>
         </ResponsiveContainer>
@@ -210,7 +210,6 @@ function SalesUHStacked({data}){
 }
 
 function Heatmap({data}){
-  // Render minimal grid heatmap
   const cells = data?.cells || []
   const grid = Array.from({length:7}, (_,d)=> Array.from({length:24},(_,h)=> cells.find(c=>c.day===d && c.hour===h)?.value || 0))
   const max = Math.max(1, ...cells.map(c=>c.value))
