@@ -1,5 +1,6 @@
 import requests
 import sys
+import json
 from datetime import datetime
 
 class CalmaDataAPITester:
@@ -58,20 +59,34 @@ class CalmaDataAPITester:
             self.failed_tests.append(f"{name}: {str(e)}")
             return False, {}
 
-    def test_health(self):
-        """Test health endpoint"""
+    def test_health_integrations(self):
+        """Test health endpoint and verify integrations"""
         success, response = self.run_test(
-            "Health Check",
+            "Health Check with Integrations",
             "GET", 
             "health",
             200,
-            expected_keys=["status"]
+            expected_keys=["status", "integrations"]
         )
-        if success and response.get("status") == "ok":
-            print("✅ Health endpoint returns status: ok")
-            return True
+        if success:
+            integrations = response.get("integrations", {})
+            ga4_status = integrations.get("ga4", False)
+            google_ads_status = integrations.get("google_ads", False)
+            
+            print(f"✅ Health endpoint returns status: {response.get('status')}")
+            print(f"📊 Integration Status:")
+            print(f"   - GA4: {ga4_status}")
+            print(f"   - Google Ads: {google_ads_status}")
+            
+            if ga4_status and google_ads_status:
+                print("✅ Both GA4 and Google Ads integrations are active")
+                return True
+            else:
+                print("❌ One or both integrations are not active")
+                self.failed_tests.append("Health Check: GA4 or Google Ads integration not active")
+                return False
         else:
-            print("❌ Health endpoint failed or status not 'ok'")
+            print("❌ Health endpoint failed")
             return False
 
     def test_kpis(self):
