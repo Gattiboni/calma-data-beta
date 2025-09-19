@@ -238,13 +238,13 @@ class CalmaDataAPITester:
             return True
         return False
 
-    def test_performance_table(self):
-        """Test performance table endpoint"""
+    def test_performance_table_real_data(self):
+        """Test performance table endpoint with real campaign data"""
         params = {"start": "2025-08-01", "end": "2025-08-07"}
         expected_keys = ["rows"]
         
         success, response = self.run_test(
-            "Performance Table",
+            "Performance Table (Real Campaign Data)",
             "GET",
             "performance-table",
             200,
@@ -254,10 +254,33 @@ class CalmaDataAPITester:
         
         if success:
             rows = response.get("rows", [])
+            print(f"📊 Performance Table Response JSON:")
+            print(json.dumps(response, indent=2, ensure_ascii=False))
             print(f"✅ Performance table data: rows_count={len(rows)}")
+            
             if rows and len(rows) > 0:
-                print(f"   Sample row: {rows[0].get('name')} - clicks: {rows[0].get('clicks')}")
-            return True
+                print(f"   Campaign rows found:")
+                for i, row in enumerate(rows[:5]):  # Show first 5 campaigns
+                    name = row.get('name', 'Unknown')
+                    clicks = row.get('clicks', 0)
+                    impressoes = row.get('impressoes', 0)
+                    custo = row.get('custo', 0)
+                    print(f"   {i+1}. {name} - clicks: {clicks}, impressões: {impressoes}, custo: R$ {custo}")
+                
+                # Check if we have real campaign data (not just mock channel data)
+                campaign_names = [row.get('name', '') for row in rows]
+                has_real_campaigns = any('Campaign' in name or 'campaign' in name.lower() for name in campaign_names)
+                
+                if has_real_campaigns:
+                    print("✅ Real campaign data detected")
+                else:
+                    print("⚠️  Data appears to be mock channel data, not real campaigns")
+                    
+                return True
+            else:
+                print("❌ No rows returned in performance table")
+                self.failed_tests.append("Performance Table: No rows returned")
+                return False
         return False
 
 def main():
