@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid, BarChart, Bar } from 'recharts'
 
-const API_BASE = import.meta.env.REACT_APP_BACKEND_URL
+const API_BASE = (import.meta.env.REACT_APP_BACKEND_URL || process.env.REACT_APP_BACKEND_URL)
 
 function formatCurrency(n) {
   return n?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -41,6 +41,7 @@ function useDateRange(initial='7d'){
 
 async function api(path, params){
   const baseUrl = API_BASE
+  if(!baseUrl){ throw new Error('Backend URL ausente. Defina REACT_APP_BACKEND_URL no .env do frontend.') }
   const fullPath = baseUrl + path
   const url = new URL(fullPath, window.location.origin)
   if(params){ Object.entries(params).forEach(([k,v])=> url.searchParams.set(k, v)) }
