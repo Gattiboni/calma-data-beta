@@ -142,13 +142,13 @@ class CalmaDataAPITester:
             return True
         return False
 
-    def test_acquisition_by_channel(self):
-        """Test acquisition by channel endpoint"""
+    def test_acquisition_by_channel_real_data(self):
+        """Test acquisition by channel endpoint with real data"""
         params = {"metric": "users", "start": "2025-08-01", "end": "2025-08-07"}
         expected_keys = ["metric", "points"]
         
         success, response = self.run_test(
-            "Acquisition by Channel",
+            "Acquisition by Channel (Real Data)",
             "GET",
             "acquisition-by-channel", 
             200,
@@ -158,10 +158,23 @@ class CalmaDataAPITester:
         
         if success:
             points = response.get("points", [])
+            print(f"📊 Acquisition Response JSON:")
+            print(json.dumps(response, indent=2, ensure_ascii=False))
             print(f"✅ Acquisition data: metric={response.get('metric')}, points_count={len(points)}")
+            
             if points and len(points) > 0:
                 print(f"   Sample point: {points[0]}")
-            return True
+                # Validate points structure
+                for i, point in enumerate(points[:3]):  # Check first 3 points
+                    if 'date' in point and 'values' in point:
+                        print(f"   Point {i+1}: date={point['date']}, channels={list(point['values'].keys())}")
+                    else:
+                        print(f"   ⚠️  Point {i+1} missing required structure")
+                return True
+            else:
+                print("❌ No points returned in acquisition data")
+                self.failed_tests.append("Acquisition by Channel: No points returned")
+                return False
         return False
 
     def test_revenue_by_uh(self):
