@@ -284,29 +284,27 @@ class CalmaDataAPITester:
         return False
 
 def main():
-    print("🚀 Starting Calma Data API Tests...")
-    print("=" * 50)
+    print("🚀 Starting Calma Data API Integration Tests...")
+    print("Testing real GA4 and Google Ads integration as requested")
+    print("=" * 60)
     
     # Setup
     tester = CalmaDataAPITester()
     
-    # Run all tests
+    # Run specific tests as requested in review
     test_methods = [
-        tester.test_health,
-        tester.test_kpis,
-        tester.test_acquisition_by_channel,
-        tester.test_revenue_by_uh,
-        tester.test_sales_uh_stacked,
-        tester.test_campaign_conversion_heatmap,
-        tester.test_performance_table
+        tester.test_health_integrations,  # 1) Health with integrations check
+        tester.test_kpis_real_data,       # 2) KPIs with real data logging
+        tester.test_acquisition_by_channel_real_data,  # 3) Acquisition with points validation
+        tester.test_performance_table_real_data,       # 4) Performance table with campaigns
     ]
     
     for test_method in test_methods:
         test_method()
     
     # Print results
-    print("\n" + "=" * 50)
-    print(f"📊 Test Results: {tester.tests_passed}/{tester.tests_run} passed")
+    print("\n" + "=" * 60)
+    print(f"📊 Integration Test Results: {tester.tests_passed}/{tester.tests_run} passed")
     
     if tester.failed_tests:
         print("\n❌ Failed Tests:")
@@ -314,10 +312,10 @@ def main():
             print(f"   - {failure}")
     
     if tester.tests_passed == tester.tests_run:
-        print("🎉 All tests passed!")
+        print("🎉 All integration tests passed!")
         return 0
     else:
-        print("💥 Some tests failed!")
+        print("💥 Some integration tests failed!")
         return 1
 
 if __name__ == "__main__":
