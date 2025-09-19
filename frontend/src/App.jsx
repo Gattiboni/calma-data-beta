@@ -40,7 +40,7 @@ function useDateRange(initial='7d'){
 }
 
 async function api(path, params){
-  const baseUrl = API_BASE || '/api'
+  const baseUrl = API_BASE
   const fullPath = baseUrl + path
   const url = new URL(fullPath, window.location.origin)
   if(params){ Object.entries(params).forEach(([k,v])=> url.searchParams.set(k, v)) }
