@@ -89,13 +89,13 @@ class CalmaDataAPITester:
             print("❌ Health endpoint failed")
             return False
 
-    def test_kpis(self):
-        """Test KPIs endpoint"""
+    def test_kpis_real_data(self):
+        """Test KPIs endpoint with real integration data"""
         params = {"start": "2025-08-01", "end": "2025-08-07"}
         expected_keys = ["receita", "reservas", "diarias", "clicks", "impressoes", "cpc", "custo"]
         
         success, response = self.run_test(
-            "KPIs Endpoint",
+            "KPIs Endpoint (Real Data)",
             "GET",
             "kpis",
             200,
@@ -104,7 +104,41 @@ class CalmaDataAPITester:
         )
         
         if success:
-            print(f"✅ KPI values: receita={response.get('receita')}, reservas={response.get('reservas')}")
+            print(f"📊 Complete KPI Response JSON:")
+            print(json.dumps(response, indent=2, ensure_ascii=False))
+            
+            # Check for real data (non-zero values from integrations)
+            receita = response.get('receita', 0)
+            reservas = response.get('reservas', 0)
+            diarias = response.get('diarias', 0)
+            clicks = response.get('clicks', 0)
+            impressoes = response.get('impressoes', 0)
+            cpc = response.get('cpc', 0)
+            custo = response.get('custo', 0)
+            
+            print(f"✅ KPI values:")
+            print(f"   - Receita (GA4): R$ {receita}")
+            print(f"   - Reservas (GA4): {reservas}")
+            print(f"   - Diárias (GA4): {diarias}")
+            print(f"   - Clicks (Google Ads): {clicks}")
+            print(f"   - Impressões (Google Ads): {impressoes}")
+            print(f"   - CPC (Google Ads): R$ {cpc}")
+            print(f"   - Custo (Google Ads): R$ {custo}")
+            
+            # Validate that we have real data (not just mock data)
+            has_real_ga4_data = receita > 0 or reservas > 0 or diarias > 0
+            has_real_ads_data = clicks > 0 and impressoes > 0 and custo > 0
+            
+            if has_real_ga4_data:
+                print("✅ GA4 data appears to be real (non-zero values)")
+            else:
+                print("⚠️  GA4 data may be mock/zero values")
+                
+            if has_real_ads_data:
+                print("✅ Google Ads data appears to be real (non-zero values)")
+            else:
+                print("⚠️  Google Ads data may be mock/zero values")
+                
             return True
         return False
 
