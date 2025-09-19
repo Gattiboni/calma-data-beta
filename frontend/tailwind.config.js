@@ -4,8 +4,9 @@ export default {
   theme: {
     extend: {
       colors: {
-        primary: "#2A8C99",
-        secondary: "#A8C6A6",
+        primary: "#2A8C99",      // Azul-Turquesa
+        secondary: "#A8C6A6",    // Verde Orgânico
+        sand: "#C4A981",        // Areia Suave
         surface: "#FAFAF7",
         offwhite: "#FAFAF7",
         white: "#FFFFFF",

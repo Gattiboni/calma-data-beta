@@ -5,6 +5,9 @@
 .card-body { @apply p-4; }
 .sidebar-link { @apply flex items-center gap-3 px-3 py-2 rounded-md hover:bg-secondary/20 text-darkgray; }
 .sidebar-link.active { @apply bg-secondary/30 text-darkgray; }
-.kpi { @apply p-4 rounded-lg bg-white shadow-softer border border-gray-100; }
-.kpi-title { @apply text-sm text-elegant; }
-.kpi-value { @apply text-2xl font-heading text-darkgray; }
+.kpi { @apply p-4 rounded-lg shadow-softer border border-gray-100 bg-white; }
+.kpi-title { @apply text-sm text-white/90; }
+.kpi-value { @apply text-2xl font-heading text-white; }
+.kpi-brand { @apply shadow-soft text-white; }
+.kpi-grid { @apply grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4; }
+.topbar-title { @apply text-darkgray font-heading text-lg; }

@@ -8,20 +8,12 @@ function formatCurrency(n) {
   return n?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-function addDays(date, days) {
-  const d = new Date(date)
-  d.setDate(d.getDate() + days)
-  return d
-}
-
-function formatISO(d) {
-  return d.toISOString().slice(0,10)
-}
+function addDays(date, days) { const d = new Date(date); d.setDate(d.getDate() + days); return d }
+function formatISO(d) { return d.toISOString().slice(0,10) }
 
 function useDateRange(initial='7d'){
   const [mode, setMode] = useState(initial)
   const [custom, setCustom] = useState({start: '', end: ''})
-
   const range = useMemo(()=>{
     const now = new Date()
     if(mode==='7d' || mode==='30d' || mode==='90d'){
@@ -35,7 +27,6 @@ function useDateRange(initial='7d'){
     const start = formatISO(addDays(now,-6))
     return { start, end }
   },[mode, custom])
-
   return { mode, setMode, custom, setCustom, range }
 }
 
@@ -56,10 +47,10 @@ function Topbar({mode, setMode, range, setCustom}){
     <div className="w-full flex items-center justify-between px-6 py-3 bg-surface border-b border-gray-200">
       <div className="flex items-center gap-3">
         <img src="/logo-calma-data.png" alt="Calma Data" className="h-8" />
-        <div className="text-darkgray font-heading text-lg">Dashboard</div>
+        <div className="topbar-title">C'alma Data, o dashboard da Ilha Faceira</div>
       </div>
       <div className="flex-1 max-w-xl mx-6">
-        <input aria-label="buscar" placeholder="Buscar..." value={q} onChange={e=>setQ(e.target.value)} className="w-full px-3 py-2 rounded-md border border-gray-200 shadow-softer bg-white"/>
+        <input aria-label="buscar" placeholder="Informações, dicas e tudo sobre seu dashboard" value={q} onChange={e=>setQ(e.target.value)} className="w-full px-3 py-2 rounded-md border border-gray-200 shadow-softer bg-white"/>
       </div>
       <div className="flex items-center gap-2">
         {['7d','30d','90d','custom'].map(key=> (
@@ -94,23 +85,81 @@ function Sidebar(){
   )
 }
 
-function KPI({title, value}){
+function KPI({title, value, color='primary'}){
   return (
-    <div className="kpi">
+    <div className="kpi kpi-brand" style={{background: `linear-gradient(180deg, var(--tw-${color}) 0%, rgba(0,0,0,0.0) 200%)`}}>
       <div className="kpi-title">{title}</div>
       <div className="kpi-value">{value}</div>
     </div>
   )
 }
 
+// Demo dataset for preview when ?demo=1
+function buildDemo(range){
+  const days = 7
+  const dates = Array.from({length:days}, (_,i)=> formatISO(addDays(new Date(range.end), -(days-1-i))))
+  const ch = ["Organic Search","Paid Search","Direct","Paid Social","Organic Social","Referral","Display"]
+  const acqPoints = dates.map((d,idx)=> ({date:d, values:{
+    "Organic Search": 120+idx*60,
+    "Paid Search": 80+idx*30,
+    "Direct": 200-idx*15,
+    "Paid Social": 40+idx*25,
+    "Organic Social": 90+idx*40,
+    "Referral": 60+idx*15,
+    "Display": 30+idx*35
+  }}))
+  const revPoints = dates.map((d,idx)=> ({date:d, values:{
+    "Standard": 1800-idx*120,
+    "Deluxe": 2200+idx*160,
+    "Suite": 2600+idx*280,
+    "Bungalow": 800+idx*40
+  }}))
+  const stacked = { series_labels:["Standard","Deluxe","Suite","Premium"], points:[
+    {label:"Semana 1", values:{Standard:120, Deluxe:180, Suite:90, Premium:60}},
+    {label:"Semana 2", values:{Standard:140, Deluxe:210, Suite:110, Premium:70}},
+    {label:"Semana 3", values:{Standard:160, Deluxe:240, Suite:130, Premium:80}},
+    {label:"Semana 4", values:{Standard:180, Deluxe:270, Suite:150, Premium:90}},
+    {label:"Semana 5", values:{Standard:210, Deluxe:300, Suite:170, Premium:100}},
+    {label:"Semana 6", values:{Standard:240, Deluxe:340, Suite:200, Premium:110}},
+  ]}
+  const cells = []
+  for(let day=0; day<7; day++){
+    for(let hour=0; hour<24; hour++){
+      const base = (hour>9 && hour<21) ? 0.7 : 0.3
+      const value = Math.round((base + Math.random()*0.6)*10)/2
+      cells.push({day, hour, value})
+    }
+  }
+  const rows = [
+    {name:'Search | Brand', clicks:520, impressoes:14800, ctr:0.071, cpc:0.12, custo:615, conversoes:72, receita:8200, roas:13.3},
+    {name:'Search | Awareness', clicks:220, impressoes:8200, ctr:0.026, cpc:0.35, custo:440, conversoes:21, receita:3200, roas:7.3},
+    {name:'Display | Remarketing', clicks:310, impressoes:24000, ctr:0.013, cpc:0.10, custo:310, conversoes:18, receita:2800, roas:9.0},
+    {name:'Social | Prospecting', clicks:140, impressoes:9000, ctr:0.015, cpc:0.28, custo:392, conversoes:9, receita:1200, roas:3.1},
+  ]
+  return {
+    kpis:{ receita:71400, reservas:32, diarias:51, clicks:5290, impressoes:148000, cpc:0.12, custo:615 },
+    acq:{ metric:'users', points: acqPoints },
+    revUH:{ points: revPoints },
+    stacked, heat:{ cells },
+    table:{ rows }
+  }
+}
+
 function useDashboardData(range){
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState({})
+  const demo = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === '1'
+
   useEffect(()=>{
     let cancelled=false
     async function load(){
       try{
         setLoading(true)
+        if(demo){
+          const d = buildDemo(range)
+          if(!cancelled) setData(d)
+          return
+        }
         const params = { start: range.start, end: range.end }
         const [kpis, acq, revUH, stacked, heat, table] = await Promise.all([
           api('/kpis', params),
@@ -127,21 +176,18 @@ function useDashboardData(range){
     }
     load()
     return ()=>{ cancelled=true }
-  },[range.start, range.end])
-  return { loading, data }
+  },[range.start, range.end, demo])
+  return { loading, data, demo }
 }
 
 function AcquisitionLine({series}){
   const chartData = useMemo(()=>{
     if(!series?.points) return []
-    return series.points.map(p=> ({
-      date: p.date,
-      ...p.values
-    }))
+    return series.points.map(p=> ({ date: p.date, ...p.values }))
   },[series])
   return (
     <div className="card">
-      <div className="card-header">Aquisição por canal (Users)</div>
+      <div className="card-header">Aquisição de Tráfego (Users)</div>
       <div className="card-body" style={{height:320}}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData}>
@@ -161,13 +207,10 @@ function AcquisitionLine({series}){
 }
 
 function RevenueByUH({data}){
-  const chartData = useMemo(()=>{
-    if(!data?.points) return []
-    return data.points.map(p=> ({ date: p.date, ...p.values }))
-  },[data])
+  const chartData = useMemo(()=>{ if(!data?.points) return []; return data.points.map(p=> ({ date: p.date, ...p.values })) },[data])
   return (
     <div className="card">
-      <div className="card-header">Receita por tipo (UH)</div>
+      <div className="card-header">Receita por período (por UH)</div>
       <div className="card-body" style={{height:320}}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData}>
@@ -191,7 +234,7 @@ function SalesUHStacked({data}){
   const keys = useMemo(()=> data?.series_labels || [], [data])
   return (
     <div className="card">
-      <div className="card-header">Vendas UH por tipo (empilhado)</div>
+      <div className="card-header">UH por Tipo</div>
       <div className="card-body" style={{height:320}}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData}>
@@ -216,12 +259,12 @@ function Heatmap({data}){
   const max = Math.max(1, ...cells.map(c=>c.value))
   return (
     <div className="card">
-      <div className="card-header">Heatmap de Conversão (dia x hora)</div>
+      <div className="card-header">Conversões por Hora e Dia (Heatmap)</div>
       <div className="card-body overflow-auto">
         <div className="grid" style={{gridTemplateColumns: 'repeat(24, 28px)'}}>
           {grid.map((row,ri)=> (
             <div key={ri} className="flex gap-1 mb-1 items-center">
-              <div className="w-10 text-xs text-elegant">{['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'][ri]}</div>
+              <div className="w-10 text-xs text-elegant">{['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][ri]}</div>
               {row.map((v,ci)=> (
                 <div key={ci} className="w-6 h-6 rounded" title={`h${ci}: ${v}`} style={{backgroundColor:`rgba(42,140,153,${v/max})`}}></div>
               ))}
@@ -236,12 +279,12 @@ function Heatmap({data}){
 function PerfTable({rows}){
   return (
     <div className="card">
-      <div className="card-header">Performance por Canal</div>
+      <div className="card-header">Performance de Campanhas (Geral)</div>
       <div className="card-body overflow-auto">
         <table className="min-w-full text-sm">
           <thead>
             <tr className="text-left text-elegant">
-              {['Canal','Cliques','Impressões','CTR','CPC','Custo','Conversões','Receita','ROAS'].map(h=> <th key={h} className="py-2 pr-4">{h}</th>)}
+              {['Campanha','Cliques','Impressões','CTR','CPC','Custo','Conversões','Receita','ROAS'].map(h=> <th key={h} className="py-2 pr-4">{h}</th>)}
             </tr>
           </thead>
           <tbody>
@@ -268,6 +311,7 @@ function PerfTable({rows}){
 export default function App(){
   const { mode, setMode, custom, setCustom, range } = useDateRange('7d')
   const { loading, data } = useDashboardData(range)
+  const brandKpiColors = ['#2A8C99','#A8C6A6','#6D6A69','#C4A981','#2A8C99','#A8C6A6','#6D6A69']
 
   return (
     <div className="h-full flex flex-col" style={{fontFamily:'Radley, serif'}}>
@@ -276,20 +320,20 @@ export default function App(){
         <Sidebar/>
         <main className="flex-1 overflow-auto p-6 space-y-6">
           {/* KPI Grid */}
-          <section className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
-            <KPI title="Receita (R$)" value={loading? '—' : formatCurrency(data?.kpis?.receita)} />
-            <KPI title="Reservas" value={loading? '—' : data?.kpis?.reservas} />
-            <KPI title="Diárias" value={loading? '—' : data?.kpis?.diarias} />
-            <KPI title="Clicks" value={loading? '—' : data?.kpis?.clicks} />
-            <KPI title="Impressões" value={loading? '—' : data?.kpis?.impressoes} />
-            <KPI title="CPC" value={loading? '—' : formatCurrency(data?.kpis?.cpc)} />
-            <KPI title="Custo de Campanhas" value={loading? '—' : formatCurrency(data?.kpis?.custo)} />
+          <section className="kpi-grid">
+            <KPI title="RECEITA" value={loading? '—' : formatCurrency(data?.kpis?.receita)} color="primary" />
+            <KPI title="RESERVAS" value={loading? '—' : data?.kpis?.reservas} color="secondary" />
+            <KPI title="DIÁRIAS" value={loading? '—' : data?.kpis?.diarias} color="elegant" />
+            <KPI title="CLICKS" value={loading? '—' : data?.kpis?.clicks?.toLocaleString('pt-BR')} color="sand" />
+            <KPI title="IMPRESSÕES" value={loading? '—' : data?.kpis?.impressoes?.toLocaleString('pt-BR')} color="primary" />
+            <KPI title="CPC" value={loading? '—' : formatCurrency(data?.kpis?.cpc)} color="secondary" />
+            <KPI title="CUSTO" value={loading? '—' : formatCurrency(data?.kpis?.custo)} color="elegant" />
           </section>
 
           {/* Charts Grid */}
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <AcquisitionLine series={data?.acq}/>
             <RevenueByUH data={data?.revUH}/>
+            <AcquisitionLine series={data?.acq}/>
             <SalesUHStacked data={data?.stacked}/>
             <Heatmap data={data?.heat}/>
           </section>
