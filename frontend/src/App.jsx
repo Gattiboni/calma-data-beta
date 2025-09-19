@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid, BarChart, Bar } from 'recharts'
 
-const API_BASE = import.meta.env.REACT_APP_BACKEND_URL || process.env.REACT_APP_BACKEND_URL
+const API_BASE = import.meta.env.REACT_APP_BACKEND_URL
 
 function formatCurrency(n) {
   return n?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
