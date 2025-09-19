@@ -1,0 +1,10 @@
+.chip { @apply inline-flex items-center px-3 py-1 rounded-md text-sm bg-white text-darkgray shadow-softer border border-gray-200 cursor-pointer; }
+.chip.active { @apply bg-primary text-white border-transparent; }
+.card { @apply bg-white rounded-lg shadow-soft border border-gray-100; }
+.card-header { @apply px-4 py-3 border-b border-gray-100 text-darkgray font-heading font-semibold; }
+.card-body { @apply p-4; }
+.sidebar-link { @apply flex items-center gap-3 px-3 py-2 rounded-md hover:bg-secondary/20 text-darkgray; }
+.sidebar-link.active { @apply bg-secondary/30 text-darkgray; }
+.kpi { @apply p-4 rounded-lg bg-white shadow-softer border border-gray-100; }
+.kpi-title { @apply text-sm text-elegant; }
+.kpi-value { @apply text-2xl font-heading text-darkgray; }
