@@ -3,6 +3,7 @@ anyio==4.10.0
 black==25.1.0
 boto3==1.40.30
 botocore==1.40.30
+cachetools==5.5.2
 certifi==2025.8.3
 cffi==2.0.0
 charset-normalizer==3.4.3
@@ -13,6 +14,14 @@ ecdsa==0.19.1
 email-validator==2.3.0
 fastapi==0.110.1
 flake8==7.3.0
+google-ads==28.0.0
+google-analytics-data==0.18.19
+google-api-core==2.25.1
+google-auth==2.40.3
+google-auth-oauthlib==1.2.2
+googleapis-common-protos==1.70.0
+grpcio==1.75.0
+grpcio-status==1.75.0
 h11==0.16.0
 idna==3.10
 iniconfig==2.1.0
@@ -33,7 +42,10 @@ passlib==1.7.4
 pathspec==0.12.1
 platformdirs==4.4.0
 pluggy==1.6.0
+proto-plus==1.26.1
+protobuf==6.32.1
 pyasn1==0.6.1
+pyasn1_modules==0.4.2
 pycodestyle==2.14.0
 pycparser==2.23
 pydantic==2.11.7
@@ -48,6 +60,7 @@ python-dotenv==1.1.1
 python-jose==3.5.0
 python-multipart==0.0.20
 pytz==2025.2
+PyYAML==6.0.2
 requests==2.32.5
 requests-oauthlib==2.0.0
 rich==14.1.0
