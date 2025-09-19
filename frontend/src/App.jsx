@@ -4,10 +4,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, Ca
 
 const API_BASE = (import.meta.env.REACT_APP_BACKEND_URL || process.env.REACT_APP_BACKEND_URL)
 
-function formatCurrency(n) {
-  return n?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
-
+function formatCurrency(n) { return n?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }
 function addDays(date, days) { const d = new Date(date); d.setDate(d.getDate() + days); return d }
 function formatISO(d) { return d.toISOString().slice(0,10) }
 
@@ -85,48 +82,57 @@ function Sidebar(){
   )
 }
 
-function KPI({title, value, color='primary'}){
+const KPI_COLORS = [
+  '#2A8C99', // Receita – Azul-Turquesa
+  '#A8C6A6', // Reservas – Verde Orgânico
+  '#6D6A69', // Diárias – Cinza Elegante
+  '#C4A981', // Clicks – Areia Suave
+  '#2A8C99', // Impressões – Azul-Turquesa
+  '#A8C6A6', // CPC – Verde Orgânico
+  '#6D6A69'  // Custo – Cinza Elegante
+]
+
+function KPI({title, value, bg}){
   return (
-    <div className="kpi kpi-brand" style={{background: `linear-gradient(180deg, var(--tw-${color}) 0%, rgba(0,0,0,0.0) 200%)`}}>
+    <div className="kpi kpi-colored" style={{backgroundColor:bg}}>
       <div className="kpi-title">{title}</div>
       <div className="kpi-value">{value}</div>
     </div>
   )
 }
 
-// Demo dataset for preview when ?demo=1
+// Dados demo
 function buildDemo(range){
   const days = 7
   const dates = Array.from({length:days}, (_,i)=> formatISO(addDays(new Date(range.end), -(days-1-i))))
-  const ch = ["Organic Search","Paid Search","Direct","Paid Social","Organic Social","Referral","Display"]
   const acqPoints = dates.map((d,idx)=> ({date:d, values:{
-    "Organic Search": 120+idx*60,
-    "Paid Search": 80+idx*30,
-    "Direct": 200-idx*15,
-    "Paid Social": 40+idx*25,
-    "Organic Social": 90+idx*40,
-    "Referral": 60+idx*15,
-    "Display": 30+idx*35
+    'Organic Search': 120+idx*60,
+    'Paid Search': 80+idx*30,
+    'Direct': 200-idx*15,
+    'Paid Social': 40+idx*25,
+    'Organic Social': 90+idx*40,
+    'Referral': 60+idx*15,
+    'Display': 30+idx*35
   }}))
   const revPoints = dates.map((d,idx)=> ({date:d, values:{
-    "Standard": 1800-idx*120,
-    "Deluxe": 2200+idx*160,
-    "Suite": 2600+idx*280,
-    "Bungalow": 800+idx*40
+    'Standard': 1800-idx*120,
+    'Deluxe': 2200+idx*160,
+    'Suite': 2600+idx*280,
+    'Premium': 900+idx*60
   }}))
-  const stacked = { series_labels:["Standard","Deluxe","Suite","Premium"], points:[
-    {label:"Semana 1", values:{Standard:120, Deluxe:180, Suite:90, Premium:60}},
-    {label:"Semana 2", values:{Standard:140, Deluxe:210, Suite:110, Premium:70}},
-    {label:"Semana 3", values:{Standard:160, Deluxe:240, Suite:130, Premium:80}},
-    {label:"Semana 4", values:{Standard:180, Deluxe:270, Suite:150, Premium:90}},
-    {label:"Semana 5", values:{Standard:210, Deluxe:300, Suite:170, Premium:100}},
-    {label:"Semana 6", values:{Standard:240, Deluxe:340, Suite:200, Premium:110}},
+  const stacked = { series_labels:['Standard','Deluxe','Suite','Premium'], points:[
+    {label:'Jan', values:{Standard:120, Deluxe:180, Suite:90, Premium:60}},
+    {label:'Fev', values:{Standard:140, Deluxe:210, Suite:110, Premium:70}},
+    {label:'Mar', values:{Standard:160, Deluxe:240, Suite:130, Premium:80}},
+    {label:'Abr', values:{Standard:180, Deluxe:270, Suite:150, Premium:90}},
+    {label:'Mai', values:{Standard:210, Deluxe:300, Suite:170, Premium:100}},
+    {label:'Jun', values:{Standard:240, Deluxe:340, Suite:200, Premium:110}},
   ]}
   const cells = []
   for(let day=0; day<7; day++){
     for(let hour=0; hour<24; hour++){
-      const base = (hour>9 && hour<21) ? 0.7 : 0.3
-      const value = Math.round((base + Math.random()*0.6)*10)/2
+      const peak = (hour>=10 && hour<=21) ? 1 : 0.4
+      const value = Math.round((peak + Math.random()*0.6)*10)/2
       cells.push({day, hour, value})
     }
   }
@@ -181,10 +187,7 @@ function useDashboardData(range){
 }
 
 function AcquisitionLine({series}){
-  const chartData = useMemo(()=>{
-    if(!series?.points) return []
-    return series.points.map(p=> ({ date: p.date, ...p.values }))
-  },[series])
+  const chartData = useMemo(()=> series?.points? series.points.map(p=> ({ date: p.date, ...p.values })) : [],[series])
   return (
     <div className="card">
       <div className="card-header">Aquisição de Tráfego (Users)</div>
@@ -207,7 +210,7 @@ function AcquisitionLine({series}){
 }
 
 function RevenueByUH({data}){
-  const chartData = useMemo(()=>{ if(!data?.points) return []; return data.points.map(p=> ({ date: p.date, ...p.values })) },[data])
+  const chartData = useMemo(()=> data?.points? data.points.map(p=> ({ date: p.date, ...p.values })) : [],[data])
   return (
     <div className="card">
       <div className="card-header">Receita por período (por UH)</div>
@@ -311,7 +314,6 @@ function PerfTable({rows}){
 export default function App(){
   const { mode, setMode, custom, setCustom, range } = useDateRange('7d')
   const { loading, data } = useDashboardData(range)
-  const brandKpiColors = ['#2A8C99','#A8C6A6','#6D6A69','#C4A981','#2A8C99','#A8C6A6','#6D6A69']
 
   return (
     <div className="h-full flex flex-col" style={{fontFamily:'Radley, serif'}}>
@@ -321,13 +323,13 @@ export default function App(){
         <main className="flex-1 overflow-auto p-6 space-y-6">
           {/* KPI Grid */}
           <section className="kpi-grid">
-            <KPI title="RECEITA" value={loading? '—' : formatCurrency(data?.kpis?.receita)} color="primary" />
-            <KPI title="RESERVAS" value={loading? '—' : data?.kpis?.reservas} color="secondary" />
-            <KPI title="DIÁRIAS" value={loading? '—' : data?.kpis?.diarias} color="elegant" />
-            <KPI title="CLICKS" value={loading? '—' : data?.kpis?.clicks?.toLocaleString('pt-BR')} color="sand" />
-            <KPI title="IMPRESSÕES" value={loading? '—' : data?.kpis?.impressoes?.toLocaleString('pt-BR')} color="primary" />
-            <KPI title="CPC" value={loading? '—' : formatCurrency(data?.kpis?.cpc)} color="secondary" />
-            <KPI title="CUSTO" value={loading? '—' : formatCurrency(data?.kpis?.custo)} color="elegant" />
+            <KPI title="RECEITA" value={loading? '—' : formatCurrency(data?.kpis?.receita)} bg={KPI_COLORS[0]} />
+            <KPI title="RESERVAS" value={loading? '—' : data?.kpis?.reservas} bg={KPI_COLORS[1]} />
+            <KPI title="DIÁRIAS" value={loading? '—' : data?.kpis?.diarias} bg={KPI_COLORS[2]} />
+            <KPI title="CLICKS" value={loading? '—' : data?.kpis?.clicks?.toLocaleString('pt-BR')} bg={KPI_COLORS[3]} />
+            <KPI title="IMPRESSÕES" value={loading? '—' : data?.kpis?.impressoes?.toLocaleString('pt-BR')} bg={KPI_COLORS[4]} />
+            <KPI title="CPC" value={loading? '—' : formatCurrency(data?.kpis?.cpc)} bg={KPI_COLORS[5]} />
+            <KPI title="CUSTO" value={loading? '—' : formatCurrency(data?.kpis?.custo)} bg={KPI_COLORS[6]} />
           </section>
 
           {/* Charts Grid */}
