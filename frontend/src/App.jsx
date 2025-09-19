@@ -40,7 +40,9 @@ function useDateRange(initial='7d'){
 }
 
 async function api(path, params){
-  const url = new URL((API_BASE||'') + path, window.location.origin)
+  const baseUrl = API_BASE || '/api'
+  const fullPath = baseUrl + path
+  const url = new URL(fullPath, window.location.origin)
   if(params){ Object.entries(params).forEach(([k,v])=> url.searchParams.set(k, v)) }
   const res = await fetch(url.toString())
   if(!res.ok) throw new Error('API error')
