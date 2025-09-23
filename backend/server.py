@@ -5,15 +5,16 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import os
 import random
-from dotenv import load_dotenv
 from pathlib import Path
 
-# Load .env file (garante caminho absoluto para evitar falhas)
-env_path = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(dotenv_path=env_path)
+# Load local .env (for local/dev runs). In container/production, real envs override.
+try:
+    from dotenv import load_dotenv  # type: ignore
+    load_dotenv(dotenv_path=Path(__file__).with_name('.env'))
+except Exception:
+    pass
 
-
-# Optional integrations
+# Optional integrations (read AFTER load_dotenv)
 GA4_PROPERTY_ID = os.environ.get("GA4_PROPERTY_ID") or os.environ.get("GA4_PROPERTY")
 GA4_CLIENT_EMAIL = os.environ.get("GA4_CLIENT_EMAIL")
 GA4_PRIVATE_KEY = os.environ.get("GA4_PRIVATE_KEY")
@@ -61,8 +62,8 @@ try:
 except Exception:
     ads_client = None
 
-# FastAPI app
-app = FastAPI(title="Calma Data API", version="1.1.0")
+# IMPORTANT: All routes must be prefixed with '/api' per ingress rules
+app = FastAPI(title="Calma Data API", version="1.1.2")
 
 # Basic CORS
 app.add_middleware(
@@ -144,8 +145,8 @@ class StackedBarsResponse(BaseModel):
     points: List[StackedBarPoint]
 
 class HeatCell(BaseModel):
-    day: int
-    hour: int
+    day: int  # 0=Sun .. 6=Sat
+    hour: int  # 0..23
     value: float
 
 class HeatmapResponse(BaseModel):
@@ -165,14 +166,296 @@ class PerformanceRow(BaseModel):
 class PerformanceTableResponse(BaseModel):
     rows: List[PerformanceRow]
 
+
+# ------------------------- Mock Generators -------------------------
+
+def seeded_rand(seed: str) -> random.Random:
+    r = random.Random()
+    r.seed(seed)
+    return r
+
+
+def mock_kpis(start: datetime, end: datetime) -> dict:
+    r = seeded_rand(f"kpis-{start}-{end}")
+    days = (end - start).days + 1
+    clicks = int(r.uniform(500, 3000) * days / 14)
+    imp = int(clicks * r.uniform(8, 20))
+    cpc = round(r.uniform(1.5, 4.5), 2)
+    custo = round(clicks * cpc, 2)
+    reservas = int(r.uniform(20, 120) * days / 14)
+    diarias = int(reservas * r.uniform(1.3, 2.1))
+    receita = round(diarias * r.uniform(180, 380), 2)  # GA4: sum of itemRevenue
+    return {
+        "receita": receita,
+        "reservas": reservas,
+        "diarias": diarias,
+        "clicks": clicks,
+        "impressoes": imp,
+        "cpc": cpc,
+        "custo": custo,
+    }
+
+
+def mock_acquisition_timeseries(metric: str, start: datetime, end: datetime) -> List[Dict[str, Any]]:
+    r = seeded_rand(f"acq-{metric}-{start}-{end}")
+    points: List[Dict[str, Any]] = []
+    for d in daterange(start, end):
+        values = {}
+        base = 100 + (d.weekday() * 10)
+        for ch in CHANNELS:
+            mult = 1.0 + (CHANNELS.index(ch) * 0.15)
+            noise = r.uniform(0.7, 1.3)
+            values[ch] = round(base * mult * noise, 2)
+        points.append({"date": d.strftime("%Y-%m-%d"), "values": values})
+    return points
+
+
+def mock_revenue_by_uh(start: datetime, end: datetime) -> List[Dict[str, Any]]:
+    r = seeded_rand(f"rev-uh-{start}-{end}")
+    out = []
+    for d in daterange(start, end):
+        values = {}
+        base = 2000 + (d.weekday() * 150)
+        for uh in UH_TYPES:
+            mult = 1.0 + (UH_TYPES.index(uh) * 0.25)
+            noise = r.uniform(0.7, 1.4)
+            values[uh] = round(base * mult * noise, 2)
+        out.append({"date": d.strftime("%Y-%m-%d"), "values": values})
+    return out
+
+
+def mock_sales_uh_stacked(start: datetime, end: datetime) -> Dict[str, Any]:
+    r = seeded_rand(f"sales-uh-{start}-{end}")
+    points = []
+    total_days = (end - start).days + 1
+    weeks = max(1, total_days // 7)
+    for i in range(weeks):
+        label = f"Semana {i+1}"
+        values = {}
+        base = 80 + i * 10
+        for uh in UH_TYPES:
+            values[uh] = round(base * (1 + UH_TYPES.index(uh) * 0.3) * r.uniform(0.8, 1.4))
+        points.append({"label": label, "values": values})
+    return {"series_labels": UH_TYPES, "points": points}
+
+
+def mock_campaign_heatmap(start: datetime, end: datetime) -> List[Dict[str, int]]:
+    r = seeded_rand(f"heat-{start}-{end}")
+    cells = []
+    for day in range(7):
+        for hour in range(24):
+            base = 2 + (6 - abs(12 - hour)) * 0.8  # peak midday/evening
+            val = max(0, r.gauss(mu=base, sigma=1.4))
+            cells.append({"day": day, "hour": hour, "value": round(val, 2)})
+    return cells
+
+
+def mock_performance_table(start: datetime, end: datetime) -> List[Dict[str, Any]]:
+    r = seeded_rand(f"perf-{start}-{end}")
+    rows = []
+    for ch in CHANNELS:
+        clicks = int(r.uniform(200, 3000))
+        imp = int(clicks * r.uniform(8, 20))
+        cpc = round(r.uniform(1.5, 4.5), 2)
+        cost = round(clicks * cpc, 2)
+        conv = int(clicks * r.uniform(0.01, 0.05))
+        revenue = round(conv * r.uniform(250, 450), 2)
+        ctr = round((clicks / imp) if imp else 0, 4)
+        roas = round((revenue / cost) if cost else 0, 2)
+        rows.append({
+            "name": ch,
+            "clicks": clicks,
+            "impressoes": imp,
+            "ctr": ctr,
+            "cpc": cpc,
+            "custo": cost,
+            "conversoes": conv,
+            "receita": revenue,
+            "roas": roas,
+        })
+    return rows
+
+
+# ------------------------- Integrations -------------------------
+
+def ga4_sum_item_revenue(start: str, end: str) -> float:
+    if not ga4_client or not GA4_PROPERTY_ID:
+        return None
+    from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest
+    req = RunReportRequest(
+        property=f"properties/{GA4_PROPERTY_ID}",
+        dimensions=[Dimension(name="date")],
+        metrics=[Metric(name="itemRevenue")],
+        date_ranges=[DateRange(start_date=start, end_date=end)],
+    )
+    resp = ga4_client.run_report(req)
+    total = 0.0
+    for row in resp.rows:
+        total += float(row.metric_values[0].value or 0)
+    return round(total, 2)
+
+
+def ga4_count_reservations(start: str, end: str) -> int:
+    if not ga4_client or not GA4_PROPERTY_ID:
+        return None
+    from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest, FilterExpression, Filter
+    req = RunReportRequest(
+        property=f"properties/{GA4_PROPERTY_ID}",
+        dimensions=[Dimension(name="eventName")],
+        metrics=[Metric(name="eventCount")],
+        date_ranges=[DateRange(start_date=start, end_date=end)],
+        dimension_filter=FilterExpression(filter=Filter(field_name="eventName", string_filter=Filter.StringFilter(value="purchase")))
+    )
+    resp = ga4_client.run_report(req)
+    # If there are no 'purchase' events recorded, fall back to conversions (optional)
+    if not resp.rows:
+        req2 = RunReportRequest(
+            property=f"properties/{GA4_PROPERTY_ID}",
+            dimensions=[Dimension(name="date")],
+            metrics=[Metric(name="conversions")],
+            date_ranges=[DateRange(start_date=start, end_date=end)],
+        )
+        resp2 = ga4_client.run_report(req2)
+        total = 0
+        for r in resp2.rows:
+            total += int(r.metric_values[0].value or 0)
+        return total
+    total = 0
+    for r in resp.rows:
+        total += int(r.metric_values[0].value or 0)
+    return total
+
+
+def ga4_sum_nights(start: str, end: str, param_name: str = "nights") -> int:
+    if not ga4_client or not GA4_PROPERTY_ID:
+        return None
+    from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest
+    dim_name = f"customEvent:{param_name}"
+    req = RunReportRequest(
+        property=f"properties/{GA4_PROPERTY_ID}",
+        dimensions=[Dimension(name="eventName"), Dimension(name=dim_name)],
+        metrics=[Metric(name="eventCount")],
+        date_ranges=[DateRange(start_date=start, end_date=end)],
+    )
+    resp = ga4_client.run_report(req)
+    total = 0
+    for row in resp.rows:
+        try:
+            n = float(row.dimension_values[1].value or 0)
+            c = int(row.metric_values[0].value or 0)
+            total += int(n * c)
+        except Exception:
+            continue
+    return int(total)
+
+
+def ads_totals(start: str, end: str) -> Dict[str, Any]:
+    if not ads_client or not ADS_CUSTOMER_ID:
+        return None
+    service = ads_client.get_service("GoogleAdsService")
+    customer_id = ADS_CUSTOMER_ID.replace("-", "")
+    query = f"""
+        SELECT segments.date, metrics.clicks, metrics.impressions, metrics.cost_micros, metrics.average_cpc
+        FROM customer
+        WHERE segments.date BETWEEN '{start}' AND '{end}'
+    """
+    resp = service.search(customer_id=customer_id, query=query)
+    clicks = 0
+    imp = 0
+    cost = 0.0
+    cpc = 0.0
+    days = 0
+    for row in resp:
+        days += 1
+        clicks += int(row.metrics.clicks or 0)
+        imp += int(row.metrics.impressions or 0)
+        cost += (row.metrics.cost_micros or 0) / 1_000_000
+        cpc += ((row.metrics.average_cpc or 0) / 1_000_000)
+    avg_cpc = round((cpc / days) if days else (cost / clicks if clicks else 0), 2)
+    return {"clicks": clicks, "impressoes": imp, "custo": round(cost, 2), "cpc": avg_cpc}
+
+
+def ads_campaign_rows(start: str, end: str) -> List[Dict[str, Any]]:
+    if not ads_client or not ADS_CUSTOMER_ID:
+        return None
+    service = ads_client.get_service("GoogleAdsService")
+    customer_id = ADS_CUSTOMER_ID.replace("-", "")
+    query = f"""
+        SELECT campaign.name, metrics.clicks, metrics.impressions, metrics.cost_micros, metrics.average_cpc, metrics.conversions, metrics.conversions_value
+        FROM campaign
+        WHERE segments.date BETWEEN '{start}' AND '{end}'
+    """
+    resp = service.search(customer_id=customer_id, query=query)
+    rows = []
+    for row in resp:
+        clicks = int(row.metrics.clicks or 0)
+        imp = int(row.metrics.impressions or 0)
+        cost = (row.metrics.cost_micros or 0) / 1_000_000
+        cpc = (row.metrics.average_cpc or 0) / 1_000_000
+        conv = int(row.metrics.conversions or 0)
+        revenue = float(row.metrics.conversions_value or 0)
+        ctr = (clicks / imp) if imp else 0
+        roas = (revenue / cost) if cost else 0
+        rows.append({
+            "name": row.campaign.name,
+            "clicks": clicks,
+            "impressoes": imp,
+            "ctr": round(ctr, 4),
+            "cpc": round(cpc if cpc else (cost / clicks if clicks else 0), 2),
+            "custo": round(cost, 2),
+            "conversoes": conv,
+            "receita": round(revenue, 2),
+            "roas": round(roas, 2)
+        })
+    return rows
+
+
 # ------------------------- Endpoints -------------------------
 
 @app.get("/api/kpis", response_model=KPIResponse)
 async def get_kpis(start: str = Query(...), end: str = Query(...), refresh: Optional[int] = 0):
-    return KPIResponse(
-        receita=0.0, reservas=0, diarias=0,
-        clicks=0, impressoes=0, cpc=0.0, custo=0.0
-    )
+    s, e = parse_dates(start, end)
+    key = f"kpis-{start}-{end}"
+    if not refresh:
+        cached = cache.get(key, ttl_seconds=int(os.environ.get("GA4_CACHE_TTL_SECONDS", "900")))
+        if cached:
+            return cached
+
+    # Default values via mocks
+    data = mock_kpis(s, e)
+
+    # Integrations override when available
+    try:
+        r = ga4_sum_item_revenue(start, end)  # official source of truth for revenue
+        if r is not None:
+            data["receita"] = r
+    except Exception:
+        pass
+
+    try:
+        reservas = ga4_count_reservations(start, end)
+        if reservas is not None:
+            data["reservas"] = reservas
+    except Exception:
+        pass
+
+    try:
+        nights = ga4_sum_nights(start, end, param_name="nights")
+        if nights is not None:
+            data["diarias"] = nights
+    except Exception:
+        pass
+
+    try:
+        ads = ads_totals(start, end)
+        if ads is not None:
+            data.update(ads)
+    except Exception:
+        pass
+
+    cache.set(key, data)
+    return data
+
 
 @app.get("/api/acquisition-by-channel", response_model=TimeSeriesResponse)
 async def acquisition_by_channel(metric: str = Query("users"), start: str = Query(...), end: str = Query(...), refresh: Optional[int] = 0):
@@ -180,7 +463,18 @@ async def acquisition_by_channel(metric: str = Query("users"), start: str = Quer
 
 @app.get("/api/revenue-by-uh", response_model=RevenueByUHResponse)
 async def revenue_by_uh(start: str = Query(...), end: str = Query(...), refresh: Optional[int] = 0):
-    return RevenueByUHResponse(points=[])
+    s, e = parse_dates(start, end)
+    key = f"revuh-{start}-{end}"
+    if not refresh:
+        cached = cache.get(key, ttl_seconds=15 * 60)
+        if cached:
+            return cached
+    # Simulated until UH type exists in data source; contract preserved
+    points = mock_revenue_by_uh(s, e)
+    payload = {"points": points}
+    cache.set(key, payload)
+    return payload
+
 
 @app.get("/api/sales-uh-stacked", response_model=StackedBarsResponse)
 async def sales_uh_stacked(start: str = Query(...), end: str = Query(...), refresh: Optional[int] = 0):
@@ -192,49 +486,57 @@ async def campaign_conversion_heatmap(start: str = Query(...), end: str = Query(
 
 @app.get("/api/performance-table", response_model=PerformanceTableResponse)
 async def performance_table(start: str = Query(...), end: str = Query(...), refresh: Optional[int] = 0):
-    return PerformanceTableResponse(rows=[])
+    s, e = parse_dates(start, end)
+    key = f"table-{start}-{end}"
+    if not refresh:
+        cached = cache.get(key, ttl_seconds=15 * 60)
+        if cached:
+            return cached
 
-@app.get("/api/example")
-async def example():
-    return {"message": "Hello, world!"}
+    rows = None
+    try:
+        rows = ads_campaign_rows(start, end)
+    except Exception:
+        rows = None
 
-# ... [todo o código igual ao anterior até a parte do Healthcheck] ...
+    if rows is None:
+        rows = mock_performance_table(s, e)
 
-# ------------------------- Healthcheck -------------------------
+    payload = {"rows": rows}
+    cache.set(key, payload)
+    return payload
+
+
+# Healthcheck (active check using GA4 itemRevenue and Ads GAQL LIMIT 1)
 @app.get("/api/health")
 async def health():
     ga4_ok = False
     ads_ok = False
 
-    # GA4 quick check (últimos 7 dias em vez de só ontem)
+    # GA4 quick check using sum of itemRevenue over last 7 days
     try:
         if ga4_client and GA4_PROPERTY_ID:
             from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest
-            today = datetime.utcnow().strftime("%Y-%m-%d")
-            last_week = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
+            end = datetime.utcnow().strftime("%Y-%m-%d")
+            start = (datetime.utcnow() - timedelta(days=6)).strftime("%Y-%m-%d")
             req = RunReportRequest(
                 property=f"properties/{GA4_PROPERTY_ID}",
                 dimensions=[Dimension(name="date")],
-                metrics=[Metric(name="users")],
-                date_ranges=[DateRange(start_date=last_week, end_date=today)],
+                metrics=[Metric(name="itemRevenue")],
+                date_ranges=[DateRange(start_date=start, end_date=end)],
                 limit=1,
             )
-            resp = ga4_client.run_report(req)
-            if resp and len(resp.rows) > 0:
-                ga4_ok = True
+            _ = ga4_client.run_report(req)  # success = credentials + property access ok
+            ga4_ok = True
     except Exception:
         ga4_ok = False
 
-    # Google Ads quick check
+    # Google Ads quick check using GAQL LIMIT 1
     try:
         if ads_client and ADS_CUSTOMER_ID:
             service = ads_client.get_service("GoogleAdsService")
             customer_id = ADS_CUSTOMER_ID.replace("-", "")
-            query = """
-                SELECT campaign.id, campaign.name
-                FROM campaign
-                LIMIT 1
-            """
+            query = "SELECT campaign.id FROM campaign LIMIT 1"
             _ = service.search(customer_id=customer_id, query=query)
             ads_ok = True
     except Exception:
