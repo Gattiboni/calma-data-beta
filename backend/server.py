@@ -5,6 +5,13 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import os
 import random
+from dotenv import load_dotenv
+from pathlib import Path
+
+# Load .env file (garante caminho absoluto para evitar falhas)
+env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
+
 
 # Optional integrations
 GA4_PROPERTY_ID = os.environ.get("GA4_PROPERTY_ID") or os.environ.get("GA4_PROPERTY")
@@ -158,14 +165,6 @@ class PerformanceRow(BaseModel):
 class PerformanceTableResponse(BaseModel):
     rows: List[PerformanceRow]
 
-# ------------------------- Mocks -------------------------
-# (copie aqui seus mocks originais sem alterações: mock_kpis, mock_acquisition_timeseries,
-# mock_revenue_by_uh, mock_sales_uh_stacked, mock_campaign_heatmap, mock_performance_table)
-
-# ------------------------- Integrations -------------------------
-# (copie aqui suas funções originais de integração: ga4_sum_item_revenue, ga4_count_reservations,
-# ga4_sum_nights, ads_totals, ads_campaign_rows)
-
 # ------------------------- Endpoints -------------------------
 
 @app.get("/api/kpis", response_model=KPIResponse)
@@ -199,32 +198,43 @@ async def performance_table(start: str = Query(...), end: str = Query(...), refr
 async def example():
     return {"message": "Hello, world!"}
 
+# ... [todo o código igual ao anterior até a parte do Healthcheck] ...
+
 # ------------------------- Healthcheck -------------------------
 @app.get("/api/health")
 async def health():
     ga4_ok = False
     ads_ok = False
+
+    # GA4 quick check (últimos 7 dias em vez de só ontem)
     try:
         if ga4_client and GA4_PROPERTY_ID:
             from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest
-            yesterday = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
+            today = datetime.utcnow().strftime("%Y-%m-%d")
+            last_week = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
             req = RunReportRequest(
                 property=f"properties/{GA4_PROPERTY_ID}",
                 dimensions=[Dimension(name="date")],
                 metrics=[Metric(name="users")],
-                date_ranges=[DateRange(start_date=yesterday, end_date=yesterday)],
+                date_ranges=[DateRange(start_date=last_week, end_date=today)],
                 limit=1,
             )
-            _ = ga4_client.run_report(req)
-            ga4_ok = True
+            resp = ga4_client.run_report(req)
+            if resp and len(resp.rows) > 0:
+                ga4_ok = True
     except Exception:
         ga4_ok = False
 
+    # Google Ads quick check
     try:
         if ads_client and ADS_CUSTOMER_ID:
             service = ads_client.get_service("GoogleAdsService")
             customer_id = ADS_CUSTOMER_ID.replace("-", "")
-            query = "SELECT campaign.id, campaign.name FROM campaign LIMIT 1"
+            query = """
+                SELECT campaign.id, campaign.name
+                FROM campaign
+                LIMIT 1
+            """
             _ = service.search(customer_id=customer_id, query=query)
             ads_ok = True
     except Exception:
