@@ -1,86 +1,49 @@
-# Env and secrets
+# ======================
+# Ambientes e segredos
+# ======================
 backend/.env
 frontend/.env
-**/*.env
-.env
-.env.*
 backend/ga4-sa.json
-*.pem
-*.key
-*.p12
 
+# Permitir templates de exemplo
+!backend/.env.example
+!frontend/.env.example
+
+# Chaves e certificados
+**/*.pem
+**/*.key
+**/*.p12
+
+# ======================
 # Python
+# ======================
 .venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# Node
+# ======================
+# Node / Frontend
+# ======================
 frontend/node_modules/
 frontend/dist/
+frontend/.yarn/*
+!frontend/.yarn/releases
+!frontend/.yarn/plugins
+!frontend/.yarn/sdks
+!frontend/.yarn/versions
 
-# OS/Editor
+# ======================
+# Logs
+# ======================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ======================
+# SO / Editor
+# ======================
 .DS_Store
-*.log-e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
-<<<<<<< HEAD
--e 
-# Environment files
-*.env
-*.env.*
-=======
-!backend/.env.example
->>>>>>> ffe70b7 (fix: allow backend/.env.example to be versioned)
+Thumbs.db
