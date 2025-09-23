@@ -76,7 +76,11 @@ frontend/dist/
 # Environment files
 *.env
 *.env.*
+<<<<<<< HEAD
 -e 
 # Environment files
 *.env
 *.env.*
+=======
+!backend/.env.example
+>>>>>>> ffe70b7 (fix: allow backend/.env.example to be versioned)
