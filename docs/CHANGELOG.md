@@ -2,6 +2,18 @@
 
 > Linha do tempo das entregas. Formato: **YYYY-MM-DD — título** + itens.
 
+## [Unreleased] — 2025-09-24
+### Changed
+- **KPI Receita:** correção — agora soma o **total do período** diretamente pela métrica `itemRevenue` (GA4 Data API).
+- **Carregamento de env:** `.env` na raiz como fonte canônica; fallback para `backend/.env`.
+
+### Fixed
+- Healthcheck não “false-positivo”: valida GA4 com `itemRevenue` 7d e Ads com GAQL `LIMIT 1`.
+
+### Chore
+- Unificação de branches: remoção do branch `conflict_230925_0029` e operação somente em `main`.
+
+
 ## 2025-09-23 — Health ativo OK (GA4+Ads), receita via itemRevenue
 - **Healthcheck ativo**: GA4 e Google Ads agora validados por chamadas reais; resultado `true/true` em ambiente local.
 - **Receita (GA4)**: fonte oficial passou a ser **Σ `itemRevenue`** (soma por dia/item). *Não* usamos `purchaseRevenue` por limitação da HSystem. :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}:contentReference[oaicite:2]{index=2}

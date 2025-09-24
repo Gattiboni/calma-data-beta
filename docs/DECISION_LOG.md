@@ -2,6 +2,20 @@
 
 > Decisões arquiteturais/produto. A mais recente fica no topo.
 
+## 2025-09-24 — Padronização de branch e fonte de receita
+
+**Decisão:** Operar o repositório em **apenas um branch: `main`**.  
+**Motivos:** reduzir atrito com merges e alinhar com o fluxo do Neo (sem branches de trabalho paralelos).
+
+**Impactos técnicos:**
+- `backend/server.py`: KPI de **receita** passa a usar **Σ `itemRevenue` agregado no período** (sem `dimensions`/`limit=1`).
+- Healthcheck permanece **ativo** (GA4: `itemRevenue` 7d; Ads: GAQL `LIMIT 1`).
+- `/api/revenue-by-uh`: segue **real-only** (sem mock); em falha → `points: []`.
+- `.env`: carregado da **raiz do projeto** como fonte canônica (fallback para `backend/.env`).
+
+**Próximos:** corrigir `/api/acquisition-by-channel` para nunca 500 e retornar `points: []` em erro.
+
+
 ## 2025-09-23 — Receita oficial = Σ itemRevenue
 **Decisão:** Toda a API e o frontend passam a tratar **Σ `itemRevenue`** como fonte de verdade da **receita** (ecommerce GA4).
 - **Motivo:** A HSystem **não entrega `purchaseRevenue` confiável**; contabiliza receita no nível de itens. :contentReference[oaicite:4]{index=4}:contentReference[oaicite:5]{index=5}
