@@ -288,6 +288,17 @@ class PerformanceRow(BaseModel):
 class PerformanceTableResponse(BaseModel):
     rows: List[PerformanceRow]
 
+class ADRPoint(BaseModel):
+    date: str
+    adr: float
+
+class ADRResponse(BaseModel):
+    points: List[ADRPoint]
+
+class DialsResponse(BaseModel):
+    cr: Dict[str, float]
+    roas: Dict[str, float]
+
 # -------------------- MOCKS (used only where allowed) --------------------
 
 def seeded_rand(seed: str) -> random.Random:
@@ -319,6 +330,71 @@ def mock_acquisition_timeseries(metric: str, start: datetime, end: datetime) -> 
     return points
 
 # -------------------- INTEGRATIONS (GA4/ADS) --------------------
+
+def ga4_revenue_qty_by_date(start: str, end: str) -> Optional[List[Dict[str, Any]]]:
+    """
+    Strict logic requested: by date of sale only.
+    Query GA4 grouped by date with metrics itemRevenue and itemsPurchased.
+    Returns list of {date: 'DD/MM/YY', revenue: float, qty: float}
+    """
+    if not ga4_client or not GA4_PROPERTY_ID:
+        return None
+    from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest
+
+    s_dt, e_dt = parse_dates(start, end)
+    try:
+        req = RunReportRequest(
+            property=f"properties/{GA4_PROPERTY_ID}",
+            dimensions=[Dimension(name="date")],
+            metrics=[Metric(name="itemRevenue"), Metric(name="itemsPurchased")],
+            date_ranges=[DateRange(start_date=start, end_date=end)],
+            limit=250000,
+        )
+        resp = ga4_client.run_report(req)
+        bucket: Dict[str, Dict[str, float]] = {}
+        for row in resp.rows:
+            d_raw = row.dimension_values[0].value
+            try:
+                d = datetime.strptime(d_raw, "%Y%m%d")
+            except Exception:
+                continue
+            k = fmt_ddmmyy(d)
+            rev = float(row.metric_values[0].value or 0)
+            qty = float(row.metric_values[1].value or 0)
+            bucket[k] = {"revenue": round(rev, 2), "qty": round(qty, 4)}
+        out = []
+        for d in daterange(s_dt, e_dt):
+            k = fmt_ddmmyy(d)
+            cell = bucket.get(k, {"revenue": 0.0, "qty": 0.0})
+            out.append({"date": k, **cell})
+        return out
+    except Exception as e:
+        print(f"[GA4] revenue/qty by date failed: {e}")
+        return None
+
+
+def ads_enabled_campaign_totals(start: str, end: str) -> Optional[Dict[str, Any]]:
+    if not ads_client or not ADS_CUSTOMER_ID:
+        return None
+    service = ads_client.get_service("GoogleAdsService")
+    customer_id = ADS_CUSTOMER_ID.replace("-", "")
+    query = f"""
+        SELECT campaign.status, metrics.clicks, metrics.conversions, metrics.conversions_value, metrics.cost_micros
+        FROM campaign
+        WHERE segments.date BETWEEN '{start}' AND '{end}'
+          AND campaign.status = 'ENABLED'
+    """
+    resp = service.search(customer_id=customer_id, query=query)
+    clicks = conv = 0
+    conv_value = cost = 0.0
+    for row in resp:
+        clicks += int(row.metrics.clicks or 0)
+        conv += int(row.metrics.conversions or 0)
+        conv_value += float(row.metrics.conversions_value or 0)
+        cost += (row.metrics.cost_micros or 0) / 1_000_000
+    cr = (conv / clicks) if clicks else 0.0
+    roas = (conv_value / cost) if cost else 0.0
+    return {"clicks": clicks, "conversions": conv, "conv_value": round(conv_value, 2), "cost": round(cost, 2), "cr": cr, "roas": roas}
 
 def ga4_sum_item_revenue(start: str, end: str) -> Optional[float]:
     if not ga4_client or not GA4_PROPERTY_ID:
@@ -730,6 +806,66 @@ async def performance_table(start: str = Query(...), end: str = Query(...), refr
         # basic mock if ads unavailable
         rows = []
     payload = {"rows": rows}
+    cache.set(key, payload)
+    return payload
+
+
+@app.get("/api/adr", response_model=ADRResponse)
+async def adr_by_stay_date(start: str = Query(...), end: str = Query(...), refresh: Optional[int] = 0):
+    s, e = parse_dates(start, end)
+    key = f"adr-{start}-{end}"
+    if not refresh:
+        cached = cache.get(key, ttl_seconds=15 * 60)
+        if cached:
+            return cached
+    points: List[Dict[str, Any]] = []
+    try:
+        rows = ga4_revenue_qty_by_date(start, end)
+        if rows is not None:
+            for r in rows:
+                adr = (r["revenue"] / r["qty"]) if r.get("qty") else 0.0
+                points.append({"date": r["date"], "adr": round(adr, 2)})
+    except Exception as e:
+        print(f"[GA4] ADR endpoint failed: {e}")
+    payload = {"points": points}
+    cache.set(key, payload)
+    return payload
+
+
+@app.get("/api/marketing-dials", response_model=DialsResponse)
+async def marketing_dials(start: str = Query(...), end: str = Query(...), refresh: Optional[int] = 0):
+    # Returns CR and ROAS with comparison to previous equivalent period
+    s, e = parse_dates(start, end)
+    prev = (s - timedelta(days=(e - s).days + 1), s - timedelta(days=1))
+    prev_start = prev[0].strftime("%Y-%m-%d")
+    prev_end = prev[1].strftime("%Y-%m-%d")
+
+    key = f"dials-{start}-{end}"
+    if not refresh:
+        cached = cache.get(key, ttl_seconds=10 * 60)
+        if cached:
+            return cached
+
+    def pack(val: float, prev_val: float) -> Dict[str, float]:
+        delta = 0.0
+        if prev_val == 0:
+            delta = 100.0 if val > 0 else 0.0
+        else:
+            delta = (val - prev_val) / prev_val * 100.0
+        return {"value": round(val, 4), "prev": round(prev_val, 4), "delta_pct": round(delta, 1)}
+
+    cr_pack = {"value": 0.0, "prev": 0.0, "delta_pct": 0.0}
+    roas_pack = {"value": 0.0, "prev": 0.0, "delta_pct": 0.0}
+
+    try:
+        cur = ads_enabled_campaign_totals(start, end) or {}
+        prv = ads_enabled_campaign_totals(prev_start, prev_end) or {}
+        cr_pack = pack(cur.get("cr", 0.0), prv.get("cr", 0.0))
+        roas_pack = pack(cur.get("roas", 0.0), prv.get("roas", 0.0))
+    except Exception as e:
+        print(f"[ADS] dials failed: {e}")
+
+    payload = {"cr": cr_pack, "roas": roas_pack}
     cache.set(key, payload)
     return payload
 
