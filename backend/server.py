@@ -9,6 +9,10 @@ from pathlib import Path
 import json
 import unicodedata
 import re
+from fastapi import UploadFile, File, Form
+import base64
+import binascii
+
 
 # Load local .env (for local/dev runs). In container/production, real envs override.
 try:
@@ -830,6 +834,51 @@ def ads_networks_breakdown(start: str, end: str):
 
     return {"nets": nets, "totals": totals, "shares": shares}
 
+def get_env(k, default=None): 
+    return os.environ.get(k, default)
+
+async def read_file_b64(file: UploadFile):
+    try:
+        content = await file.read()
+        b64 = base64.b64encode(content).decode('utf-8')
+        await file.seek(0)
+        return {"filename": file.filename, "content": b64, "content_type": file.content_type or "application/octet-stream"}
+    except Exception:
+        return None
+
+async def send_feedback_via_resend(subject: str, text: str, html: str, attachments: list):
+    api_key = get_env("RESEND_API_KEY")
+    if not api_key: 
+        return {"sent": False, "reason": "no_api_key"}
+    try:
+        import resend
+        resend.api_key = api_key
+        params = {
+            "from": get_env("FEEDBACK_FROM", "Calma Data <noreply@example.com>"),
+            "to": [get_env("FEEDBACK_TO", "dev@example.com")],
+            "subject": subject,
+            "text": text,
+            "html": html
+        }
+        if attachments:
+            params["attachments"] = [{"filename": a["filename"], "content": a["content"]} for a in attachments]
+        r = resend.Emails.send(params)
+        return {"sent": True, "id": r.get("id")}
+    except Exception as e:
+        print("[RESEND] error:", e)
+        return {"sent": False, "reason": "error"}
+
+async def store_feedback_fallback(doc: dict):
+    if not mongo_db:
+        return {"stored": False, "reason": "no_mongo"}
+    try:
+        res = await mongo_db["feedbacks"].insert_one(doc)
+        return {"stored": True, "id": str(res.inserted_id)}
+    except Exception as e:
+        print("[MONGO] feedback error:", e)
+        return {"stored": False, "reason": "mongo_error"}
+
+
 # -------------------- MONTHLY REPORT HELPERS (OpenAI + Mongo quota) --------------------
 
 class MonthlyReportRequest(BaseModel):
@@ -1463,6 +1512,47 @@ async def monthly_report(req: MonthlyReportRequest):
         "quota": {"allowed": 4, "used": new_used, "remaining": remaining},
         "gpt": gpt_meta
     }
+
+@app.post("/api/feedback")
+async def post_feedback(
+    name: str = Form(...),
+    email: str = Form(...),
+    message: str = Form(...),
+    component: str = Form("Geral"),
+    files: list[UploadFile] = File(None)
+):
+    # Monta attachments
+    atts = []
+    if files:
+        for f in files:
+            a = await read_file_b64(f)
+            if a: atts.append(a)
+
+    subject = f"[Calma Data] Feedback – {component}"
+    text = f"Nome: {name}\nEmail: {email}\nComponente: {component}\n\nMensagem:\n{message}"
+    html = f"""
+    <h3>Feedback recebido</h3>
+    <p><strong>Nome:</strong> {name}<br/>
+    <strong>Email:</strong> {email}<br/>
+    <strong>Componente:</strong> {component}</p>
+    <p style="white-space:pre-wrap">{message}</p>
+    """
+
+    # Primeiro tenta Resend
+    r = await send_feedback_via_resend(subject, text, html, atts)
+    if r.get("sent"):
+        return {"ok": True, "via": "resend", "id": r.get("id")}
+
+    # Fallback Mongo (sempre retorna 200 para não travar UX)
+    doc = {
+        "name": name, "email": email, "component": component, "message": message,
+        "attachments": [{"filename": a["filename"], "content_type": a["content_type"], "size": len(a["content"])} for a in atts],
+        "created_at": datetime.utcnow().isoformat(), "via": "fallback", "reason": r.get("reason")
+    }
+    s = await store_feedback_fallback(doc)
+    if s.get("stored"):
+        return {"ok": True, "via": "fallback", "id": s.get("id"), "note": "Sem chave RESEND ou indisponível"}
+    raise HTTPException(status_code=500, detail="Não foi possível registrar seu feedback agora.")
 
 
 # -------------------- HEALTH --------------------

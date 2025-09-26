@@ -130,7 +130,7 @@ function Icon({ name, className = 'w-4 h-4 text-elegant' }) {
   return null
 }
 
-function Topbar({ mode, setMode, range, setCustom, custom }) {
+function Topbar({ mode, setMode, range, setCustom, custom, setFeedbackOpen }) {
   const [open, setOpen] = useState(false)
   // Meses completos até o mês passado
   const months = useMemo(() => {
@@ -167,23 +167,51 @@ function Topbar({ mode, setMode, range, setCustom, custom }) {
         <MonthlyReportButton month={selectedMonth} />
       </div>
 
-      {/* Direita: seletor de período do dashboard (inalterado) */}
+      {/* Direita: seletor de período do dashboard + botão de feedback */}
       <div className="flex items-center gap-2">
         {['7d', '30d', '90d', 'custom'].map(key => (
-          <button key={key} className={`chip ${mode === key ? 'active' : ''}`} onClick={() => setMode(key)} aria-label={`intervalo ${key}`}>{key.toUpperCase()}</button>
+          <button
+            key={key}
+            className={`chip ${mode === key ? 'active' : ''}`}
+            onClick={() => setMode(key)}
+            aria-label={`intervalo ${key}`}
+          >
+            {key.toUpperCase()}
+          </button>
         ))}
+
         {mode === 'custom' && (
           <div className="flex items-center gap-2">
-            <input type="date" value={custom?.start || range.start} onChange={e => setCustom(s => ({ ...s, start: e.target.value }))} className="px-3 py-2 rounded-md border border-gray-200" />
-            <input type="date" value={custom?.end || range.end} onChange={e => setCustom(s => ({ ...s, end: e.target.value }))} className="px-3 py-2 rounded-md border border-gray-200" />
+            <input
+              type="date"
+              value={custom?.start || range.start}
+              onChange={e => setCustom(s => ({ ...s, start: e.target.value }))}
+              className="px-3 py-2 rounded-md border border-gray-200"
+            />
+            <input
+              type="date"
+              value={custom?.end || range.end}
+              onChange={e => setCustom(s => ({ ...s, end: e.target.value }))}
+              className="px-3 py-2 rounded-md border border-gray-200"
+            />
           </div>
         )}
+
+        {/* ✅ Botão “Fale com o Dev” */}
+        <button
+          className="chip"
+          style={{ background: '#2A8C99', color: '#fff', borderColor: '#6D6A69' }}
+          title="Fale com o Dev"
+          onClick={() => setFeedbackOpen(true)}
+        >
+          Fale com o Dev
+        </button>
       </div>
     </div>
   )
 }
 
-function Sidebar() {
+function Sidebar({ active = 'inicio', onNavigate }) {
   const items = [
     { id: 'inicio', label: 'Início', icon: 'home' },
     { id: 'sobre', label: 'Sobre', icon: 'info' },
@@ -192,15 +220,27 @@ function Sidebar() {
   return (
     <aside className="w-24 shrink-0 h-full flex items-start justify-center py-4" aria-label="menu lateral">
       <div className="sidebar-capsule" role="navigation">
-        {items.map(it => (
-          <button key={it.id} title={it.label} className="hover:opacity-80" aria-label={it.label}>
-            <Icon name={it.icon} className="sidebar-icon" />
-          </button>
-        ))}
+        {items.map(it => {
+          const isActive = it.id === active
+          return (
+            <button
+              key={it.id}
+              title={it.label}
+              aria-label={it.label}
+              aria-current={isActive ? 'page' : undefined}
+              className="hover:opacity-80"
+              onClick={() => onNavigate?.(it.id)}
+              style={isActive ? { outline: '2px solid #6D6A69', outlineOffset: 2, borderRadius: 8, background: 'rgba(196,169,129,0.22)' } : undefined}
+            >
+              <Icon name={it.icon} className="sidebar-icon" />
+            </button>
+          )
+        })}
       </div>
     </aside>
   )
 }
+
 
 const KPIGREEN = '#A8C6A6'
 
@@ -1120,24 +1160,24 @@ Se você tiver qualquer dúvidas, pergunta, sugestão de melhoria, ou simplesmen
 
 
 // === Monthly Report (PDF) ===
-function MonthlyReportButton({month}){
+function MonthlyReportButton({ month }) {
   const [busy, setBusy] = useState(false)
   const tip = "Você tem direito a 4 relatórios/mês"
-  async function generate(){
-    if(!month){ alert('Selecione um mês completo'); return }
+  async function generate() {
+    if (!month) { alert('Selecione um mês completo'); return }
     setBusy(true)
-    try{
+    try {
       const res = await fetch(ensureApiBase('/monthly-report'), {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({month})
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month })
       })
-      if(res.status===429){
+      if (res.status === 429) {
         const j = await res.json()
         alert(j.detail || 'Limite mensal de 4 relatórios atingido.')
         return
       }
-      if(!res.ok){ throw new Error('Falha ao gerar resumo mensal') }
+      if (!res.ok) { throw new Error('Falha ao gerar resumo mensal') }
       const data = await res.json()
 
       // >>> AVISO GPT
@@ -1153,7 +1193,7 @@ function MonthlyReportButton({month}){
 
       const imgs = await captureMonthlyCharts(month)
       await buildMonthlyPdf(month, data, imgs)
-    } catch(e){
+    } catch (e) {
       console.error(e)
       alert('Não foi possível gerar o PDF agora. Tente novamente.')
     } finally {
@@ -1165,9 +1205,9 @@ function MonthlyReportButton({month}){
       onClick={generate}
       title={tip}
       disabled={busy}
-      style={{background:'#A28C99', color:'#fff', border:'1px solid #6D6A69', borderRadius:8, padding:'8px 16px', fontWeight:600}}
+      style={{ background: '#A28C99', color: '#fff', border: '1px solid #6D6A69', borderRadius: 8, padding: '8px 16px', fontWeight: 600 }}
     >
-      {busy? 'Gerando…' : 'Resumo Mensal'}
+      {busy ? 'Gerando…' : 'Resumo Mensal'}
     </button>
   )
 }
@@ -1188,7 +1228,7 @@ async function buildMonthlyPdf(month, payload, imgs) {
   const LINE = { r: 109, g: 106, b: 105 }  // #6D6A69
 
   // Helpers de formatação p/ a tabela
-  const brl   = (v) => `R$${Number(v || 0).toFixed(2).replace('.', ',')}`
+  const brl = (v) => `R$${Number(v || 0).toFixed(2).replace('.', ',')}`
   const asInt = (v) => Number(v || 0).toLocaleString('pt-BR')
   const asPct = (v) => `${Number(v || 0).toFixed(1)}%`
   const cellFmt = (metric, v) => (metric === 'Receita' || metric === 'CPC') ? brl(v) : asInt(v)
@@ -1230,12 +1270,12 @@ async function buildMonthlyPdf(month, payload, imgs) {
 
   // Linhas-base
   const rowsRaw = [
-    ['Receita',     cur.receita,     prev.receita,     dlt.receita],
-    ['Reservas',    cur.reservas,    prev.reservas,    dlt.reservas],
-    ['Diárias',     cur.diarias,     prev.diarias,     dlt.diarias],
-    ['Clicks',      cur.clicks,      prev.clicks,      dlt.clicks],
-    ['Impressões',  cur.impressoes,  prev.impressoes,  dlt.impressoes],
-    ['CPC',         cur.cpc,         prev.cpc,         dlt.cpc],
+    ['Receita', cur.receita, prev.receita, dlt.receita],
+    ['Reservas', cur.reservas, prev.reservas, dlt.reservas],
+    ['Diárias', cur.diarias, prev.diarias, dlt.diarias],
+    ['Clicks', cur.clicks, prev.clicks, dlt.clicks],
+    ['Impressões', cur.impressoes, prev.impressoes, dlt.impressoes],
+    ['CPC', cur.cpc, prev.cpc, dlt.cpc],
   ]
   const rows = rowsRaw.map(r => [
     r[0],
@@ -1275,10 +1315,10 @@ async function buildMonthlyPdf(month, payload, imgs) {
   const resumoTexto =
     payload.sections?.resumo
     || (payload?.gpt?.reason === 'quota_exceeded'
-        ? 'Análise automática indisponível (cota da OpenAI excedida).'
-        : payload?.gpt?.reason === 'no_api_key'
-          ? 'Análise automática indisponível (chave OpenAI ausente).'
-          : 'Análise automática indisponível no momento.')
+      ? 'Análise automática indisponível (cota da OpenAI excedida).'
+      : payload?.gpt?.reason === 'no_api_key'
+        ? 'Análise automática indisponível (chave OpenAI ausente).'
+        : 'Análise automática indisponível no momento.')
 
   rightY = addText(resumoTexto, rightX, rightY, COLW, 14)
 
@@ -1336,11 +1376,11 @@ async function buildMonthlyPdf(month, payload, imgs) {
   doc.setFont('helvetica', 'normal'); doc.setFontSize(11)
   addText(
     payload.sections?.final ||
-      (payload?.gpt?.reason === 'quota_exceeded'
-        ? 'Análise automática indisponível (cota da OpenAI excedida).'
-        : payload?.gpt?.reason === 'no_api_key'
-          ? 'Análise automática indisponível (chave OpenAI ausente).'
-          : 'Análise automática indisponível no momento.'),
+    (payload?.gpt?.reason === 'quota_exceeded'
+      ? 'Análise automática indisponível (cota da OpenAI excedida).'
+      : payload?.gpt?.reason === 'no_api_key'
+        ? 'Análise automática indisponível (chave OpenAI ausente).'
+        : 'Análise automática indisponível no momento.'),
     M, M + 24, W - M * 2, 16
   )
 
@@ -1505,17 +1545,48 @@ async function captureMonthlyCharts(month) {
 }
 
 // === Sobre: exibe o PDF em-embutido dentro do app ===
-function AboutPage(){
-  // altura: ocupa a área do conteúdo; ajuste se quiser mais/menos
+
+function AboutPage({ onBack }) {
   return (
-    <div className="card" style={{ height: 'calc(100vh - 160px)' }}>
-      <div className="card-header">Sobre</div>
-      <div className="card-body" style={{ height: '100%', padding: 0 }}>
+    <div className="card" style={{ borderColor: '#6D6A69' }}>
+      <div className="card-header flex items-center justify-between">
+        <div className="topbar-title">Sobre</div>
+        <button
+          onClick={onBack}
+          className="chip"
+          style={{ background: '#2A8C99', color: '#fff', borderColor: '#6D6A69' }}
+          title="Voltar ao dashboard"
+        >
+          Voltar
+        </button>
+      </div>
+      <div className="card-body" style={{ height: 'calc(100vh - 220px)', padding: 0 }}>
+        {/* Usa o viewer nativo do navegador (com toolbar e navegação) */}
         <iframe
-          title="Sobre"
-          src="/sobre/sobre.pdf"
-          style={{ width: '100%', height: '100%', border: 'none' }}
+          title="Sobre - Calma Data"
+          src="/About.pdf#toolbar=1&navpanes=1&view=FitH"
+          className="pdf-frame"
         />
+      </div>
+    </div>
+  )
+}
+
+function SettingsComingSoon({ onBack }) {
+  return (
+    <div className="card">
+      <div className="card-header flex items-center justify-between">
+        <div className="topbar-title">Configurações</div>
+        <button
+          onClick={onBack}
+          className="chip"
+          style={{ background: '#2A8C99', color: '#fff', borderColor: '#6D6A69' }}
+        >
+          Voltar
+        </button>
+      </div>
+      <div className="card-body" style={{ minHeight: 320 }}>
+        Em breve.
       </div>
     </div>
   )
@@ -1525,6 +1596,9 @@ function AboutPage(){
 export default function App() {
   const { mode, setMode, custom, setCustom, range } = useDateRange('7d')
   const { loading, data } = useDashboardData(range)
+  const [route, setRoute] = useState('inicio') // 'inicio' | 'sobre' | 'config'
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+
 
 
   const spanDays = useMemo(() => {
@@ -1534,75 +1608,98 @@ export default function App() {
 
   return (
     <div className="h-full flex flex-col" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
-      <Topbar mode={mode} setMode={setMode} range={range} setCustom={setCustom} custom={custom} />
+      <Topbar
+        mode={mode}
+        setMode={setMode}
+        range={range}
+        setCustom={setCustom}
+        custom={custom}
+        setFeedbackOpen={setFeedbackOpen}
+      />
       <div className="divider-horizontal w-full" />
       <div className="flex-1 flex overflow-hidden">
-        <Sidebar />
+        <Sidebar active={route} onNavigate={setRoute} />
         <div className="divider-vertical" />
-        <main className="flex-1 overflow-auto p-6 space-y-6">
+        {route === 'inicio' && (
+          <main className="flex-1 overflow-auto p-6 space-y-6">
 
-          {/* KPIs */}
-          <section className="kpi-grid">
-            <KPI title="RECEITA" value={loading ? '—' : formatBRLShort(data?.kpis?.receita)} loading={loading} icon="money" />
-            <KPI title="RESERVAS" value={loading ? '—' : data?.kpis?.reservas} loading={loading} icon="bag" />
-            <KPI title="DIÁRIAS" value={loading ? '—' : data?.kpis?.diarias} loading={loading} icon="moon" />
-            <KPI title="CLICKS" value={loading ? '—' : data?.kpis?.clicks?.toLocaleString('pt-BR')} loading={loading} icon="click" />
-            <KPI title="IMPRESSÕES" value={loading ? '—' : data?.kpis?.impressoes?.toLocaleString('pt-BR')} loading={loading} icon="eye" />
-            <KPI title="CPC" value={loading ? '—' : `R$${(data?.kpis?.cpc || 0).toFixed(2).replace('.', ',')}`} loading={loading} icon="coin" />
-            <KPI title="CUSTO" value={loading ? '—' : `R$${(data?.kpis?.custo || 0).toFixed(2).replace('.', ',')}`} loading={loading} icon="cost" />
-          </section>
+            {/* === COLE AQUI o conteúdo que estava dentro do seu main === */}
+            {/* Ou seja, todo o conteúdo original do dashboard que você mostrou acima:
+        KPIs, gráficos, tabelas, etc. */}
+            {/* Nada precisa ser alterado dentro dessas seções */}
 
-          {/* Receita por UH + painéis */}
-          <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            <div className="lg:col-span-6"><RevenueByUH data={data?.revUH} spanDays={spanDays} loading={loading} /></div>
-            <div className="lg:col-span-3"><RevUHSummary curr={data?.revUH} prev={data?.prevRevUH} loading={loading} /></div>
-            <div className="lg:col-span-3"><RevUHInsights curr={data?.revUH} prev={data?.prevRevUH} loading={loading} /></div>
-          </section>
+            {/* KPIs */}
+            <section className="kpi-grid">
+              <KPI title="RECEITA" value={loading ? '—' : formatBRLShort(data?.kpis?.receita)} loading={loading} icon="money" />
+              <KPI title="RESERVAS" value={loading ? '—' : data?.kpis?.reservas} loading={loading} icon="bag" />
+              <KPI title="DIÁRIAS" value={loading ? '—' : data?.kpis?.diarias} loading={loading} icon="moon" />
+              <KPI title="CLICKS" value={loading ? '—' : data?.kpis?.clicks?.toLocaleString('pt-BR')} loading={loading} icon="click" />
+              <KPI title="IMPRESSÕES" value={loading ? '—' : data?.kpis?.impressoes?.toLocaleString('pt-BR')} loading={loading} icon="eye" />
+              <KPI title="CPC" value={loading ? '—' : `R$${(data?.kpis?.cpc || 0).toFixed(2).replace('.', ',')}`} loading={loading} icon="coin" />
+              <KPI title="CUSTO" value={loading ? '—' : `R$${(data?.kpis?.custo || 0).toFixed(2).replace('.', ',')}`} loading={loading} icon="cost" />
+            </section>
 
-          {/* Aquisição + painéis */}
-          <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            <div className="lg:col-span-6"><AcquisitionLine series={data?.acq} spanDays={spanDays} loading={loading} /></div>
-            <div className="lg:col-span-3"><AcquisitionSummary curr={data?.acq} prev={data?.prevAcq} loading={loading} /></div>
-            <div className="lg:col-span-3"><AcquisitionInsights curr={data?.acq} prev={data?.prevAcq} loading={loading} /></div>
-          </section>
+            {/* Receita por UH + painéis */}
+            <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              <div className="lg:col-span-6"><RevenueByUH data={data?.revUH} spanDays={spanDays} loading={loading} /></div>
+              <div className="lg:col-span-3"><RevUHSummary curr={data?.revUH} prev={data?.prevRevUH} loading={loading} /></div>
+              <div className="lg:col-span-3"><RevUHInsights curr={data?.revUH} prev={data?.prevRevUH} loading={loading} /></div>
+            </section>
 
-          {/* ADR + Dials */}
-          <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            <div className="lg:col-span-6"><ADRChart series={data?.adr} loading={loading} spanDays={spanDays} /></div>
-            <div className="lg:col-span-3">
-              <DialCard
-                label="Conversões"
-                titleHint="Conversion Rate = conversions ÷ clicks (Google Ads – campanhas ENABLED). Comparado ao período anterior."
-                value={data?.dials?.cr?.value || 0}
-                prev={data?.dials?.cr?.prev || 0}
-                deltaPct={data?.dials?.cr?.delta_pct || 0}
-                format={(v) => `${(v * 100).toFixed(2)}%`}
-                loading={loading}
-              />
-            </div>
-            <div className="lg:col-span-3">
-              <DialCard
-                label="ROAS por Campanha"
-                titleHint="ROAS = Receita atribuída ao Google Ads (GA4) ÷ Custo (Google Ads). Comparado ao período anterior."
-                value={data?.dials?.roas?.value || 0}
-                prev={data?.dials?.roas?.prev || 0}
-                deltaPct={data?.dials?.roas?.delta_pct || 0}
-                format={(v) => `R$${(v || 0).toFixed(2).replace('.', ',')}`}
-                loading={loading}
-              />
-            </div>
-          </section>
+            {/* Aquisição + painéis */}
+            <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              <div className="lg:col-span-6"><AcquisitionLine series={data?.acq} spanDays={spanDays} loading={loading} /></div>
+              <div className="lg:col-span-3"><AcquisitionSummary curr={data?.acq} prev={data?.prevAcq} loading={loading} /></div>
+              <div className="lg:col-span-3"><AcquisitionInsights curr={data?.acq} prev={data?.prevAcq} loading={loading} /></div>
+            </section>
 
-          <CampaignsTable />
+            {/* ADR + Dials */}
+            <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              <div className="lg:col-span-6"><ADRChart series={data?.adr} loading={loading} spanDays={spanDays} /></div>
+              <div className="lg:col-span-3">
+                <DialCard
+                  label="Conversões"
+                  titleHint="Conversion Rate = conversions ÷ clicks (Google Ads – campanhas ENABLED). Comparado ao período anterior."
+                  value={data?.dials?.cr?.value || 0}
+                  prev={data?.dials?.cr?.prev || 0}
+                  deltaPct={data?.dials?.cr?.delta_pct || 0}
+                  format={(v) => `${(v * 100).toFixed(2)}%`}
+                  loading={loading}
+                />
+              </div>
+              <div className="lg:col-span-3">
+                <DialCard
+                  label="ROAS por Campanha"
+                  titleHint="ROAS = Receita atribuída ao Google Ads (GA4) ÷ Custo (Google Ads). Comparado ao período anterior."
+                  value={data?.dials?.roas?.value || 0}
+                  prev={data?.dials?.roas?.prev || 0}
+                  deltaPct={data?.dials?.roas?.delta_pct || 0}
+                  format={(v) => `R$${(v || 0).toFixed(2).replace('.', ',')}`}
+                  loading={loading}
+                />
+              </div>
+            </section>
 
-          <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-            <div className="lg:col-span-6 h-full"><NetworksBreakdown /></div>
-            <div className="lg:col-span-6 h-full"><WelcomeCard /></div>
-          </section>
+            <CampaignsTable />
 
+            <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+              <div className="lg:col-span-6 h-full"><NetworksBreakdown /></div>
+              <div className="lg:col-span-6 h-full"><WelcomeCard /></div>
+            </section>
+          </main>
+        )}
 
+        {route === 'sobre' && (
+          <main className="flex-1 overflow-auto p-6">
+            <AboutPage onBack={() => setRoute('inicio')} />
+          </main>
+        )}
 
-        </main>
+        {route === 'config' && (
+          <main className="flex-1 overflow-auto p-6">
+            <SettingsComingSoon onBack={() => setRoute('inicio')} />
+          </main>
+        )}
       </div>
     </div>
   )
