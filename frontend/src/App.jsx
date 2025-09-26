@@ -6,6 +6,14 @@ import {
   BarChart, Bar, AreaChart, Area
 } from 'recharts'
 
+import { jsPDF } from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import { toPng } from 'html-to-image'
+import ReactDOM from 'react-dom/client'
+
+
+
+
 const API_BASE = (
   import.meta.env?.VITE_BACKEND_URL ||
   import.meta.env?.REACT_APP_BACKEND_URL ||
@@ -27,6 +35,18 @@ function ensureApiBase(path) {
   }
   return full
 }
+
+async function fetchMonthlyDatasets(month) {
+  const { start, end, spanDays } = monthBoundsJS(month)
+  const [revUH, acq, pmc, nets] = await Promise.all([
+    api('/revenue-by-uh', { start, end }),
+    api('/acquisition-by-channel', { start, end, metric: 'users' }),
+    api('/adr', { start, end }),
+    api('/ads-networks', { month })
+  ])
+  return { revUH, acq, pmc, nets, spanDays }
+}
+
 
 function formatBRLShort(n) {
   if (n === null || n === undefined || isNaN(n)) return '—'
@@ -111,7 +131,22 @@ function Icon({ name, className = 'w-4 h-4 text-elegant' }) {
 }
 
 function Topbar({ mode, setMode, range, setCustom, custom }) {
-  const [q, setQ] = useState('')
+  const [open, setOpen] = useState(false)
+  // Meses completos até o mês passado
+  const months = useMemo(() => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const currentMonth = now.getMonth() + 1
+    const labels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+    const arr = []
+    for (let m = 1; m < currentMonth; m++) {
+      const val = `${year}-${String(m).padStart(2, '0')}`
+      arr.push({ value: val, label: `${labels[m - 1]}/${String(year).slice(-2)}` })
+    }
+    return arr.reverse()
+  }, [])
+  const [selectedMonth, setSelectedMonth] = useState(months[0]?.value || '')
+
   return (
     <div className="w-full flex items-center justify-between px-6 py-3 bg-surface">
       <div className="flex items-center gap-3">
@@ -119,41 +154,28 @@ function Topbar({ mode, setMode, range, setCustom, custom }) {
         <div className="topbar-title">C'alma Data, o dashboard da Ilha Faceira</div>
       </div>
 
-      <div className="flex-1 max-w-xl mx-6">
-        <input
-          aria-label="buscar"
-          placeholder="Informações, dicas e tudo sobre seu dashboard"
-          value={q}
-          onChange={e => setQ(e.target.value)}
-          className="w-full px-3 py-2 rounded-md border border-gray-200 shadow-softer bg-white"
-        />
+      {/* Centro: Botão Resumo Mensal */}
+      <div className="flex items-center gap-2">
+        <select
+          value={selectedMonth}
+          onChange={e => setSelectedMonth(e.target.value)}
+          className="border rounded px-2 py-1 text-sm"
+          title="Selecione um mês completo (o mês vigente não aparece)"
+        >
+          {months.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+        </select>
+        <MonthlyReportButton month={selectedMonth} />
       </div>
 
+      {/* Direita: seletor de período do dashboard (inalterado) */}
       <div className="flex items-center gap-2">
         {['7d', '30d', '90d', 'custom'].map(key => (
-          <button
-            key={key}
-            className={`chip ${mode === key ? 'active' : ''}`}
-            onClick={() => setMode(key)}
-            aria-label={`intervalo ${key}`}
-          >
-            {key.toUpperCase()}
-          </button>
+          <button key={key} className={`chip ${mode === key ? 'active' : ''}`} onClick={() => setMode(key)} aria-label={`intervalo ${key}`}>{key.toUpperCase()}</button>
         ))}
         {mode === 'custom' && (
           <div className="flex items-center gap-2">
-            <input
-              type="date"
-              value={custom?.start || range.start}
-              onChange={e => setCustom(s => ({ ...s, start: e.target.value }))}
-              className="px-3 py-2 rounded-md border border-gray-200"
-            />
-            <input
-              type="date"
-              value={custom?.end || range.end}
-              onChange={e => setCustom(s => ({ ...s, end: e.target.value }))}
-              className="px-3 py-2 rounded-md border border-gray-200"
-            />
+            <input type="date" value={custom?.start || range.start} onChange={e => setCustom(s => ({ ...s, start: e.target.value }))} className="px-3 py-2 rounded-md border border-gray-200" />
+            <input type="date" value={custom?.end || range.end} onChange={e => setCustom(s => ({ ...s, end: e.target.value }))} className="px-3 py-2 rounded-md border border-gray-200" />
           </div>
         )}
       </div>
@@ -382,6 +404,29 @@ function abbrev(name) {
 function EmptyState() {
   return (<div className="w-full h-full flex items-center justify-center text-sm text-elegant/70">Sem dados para o período selecionado</div>)
 }
+
+function formatBRL2(v) {
+  return `R$${(v || 0).toFixed(2).replace('.', ',')}`
+}
+
+function formatPct2(v) {
+  return `${((v || 0) * 100).toFixed(2)}%`
+}
+
+function formatPct1(v) {
+  return `${((v || 0) * 100).toFixed(1)}%`
+}
+
+function monthBoundsJS(monthStr) {
+  // 'YYYY-MM' -> { start:'YYYY-MM-DD', end:'YYYY-MM-DD', spanDays:n }
+  const [y, m] = monthStr.split('-').map(n => parseInt(n, 10))
+  const start = new Date(y, m - 1, 1)
+  const end = new Date(y, m, 0) // último dia do mês
+  const iso = d => d.toISOString().slice(0, 10)
+  return { start: iso(start), end: iso(end), spanDays: Math.round((end - start) / (1000 * 60 * 60 * 24)) + 1 }
+}
+
+
 
 // Summaries/Insights com loading
 function RevUHSummary({ curr, prev, loading }) {
@@ -742,9 +787,8 @@ function DialCard({ label, titleHint, value, prev, deltaPct, format, loading }) 
         <div className="mt-3 text-2xl font-bold">{format(value)}</div>
         <div className="text-sm mt-1 text-elegant/80">
           {prev > 0
-            ? `vs. ant.: ${format(prev)} (${
-                deltaPct >= 0 ? '+' : ''
-              }${(deltaPct || 0).toFixed(1)}%)`
+            ? `vs. ant.: ${format(prev)} (${deltaPct >= 0 ? '+' : ''
+            }${(deltaPct || 0).toFixed(1)}%)`
             : 'Sem período anterior'}
         </div>
       </div>
@@ -752,9 +796,737 @@ function DialCard({ label, titleHint, value, prev, deltaPct, format, loading }) 
   );
 }
 
+function CampaignsTable() {
+  const [status, setStatus] = useState('enabled')
+  const [period, setPeriod] = useState('last30')
+  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState({ rows: [], total: null })
+
+  const monthsOptions = useMemo(() => {
+    const now = new Date()
+    const y = now.getFullYear()
+    const labels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+    return Array.from({ length: now.getMonth() + 1 }, (_, i) => {
+      const mm = String(i + 1).padStart(2, '0')
+      return { value: `${y}-${mm}`, label: `${labels[i]}/${String(y).slice(-2)}` }
+    }).reverse()
+  }, [])
+
+  async function load() {
+    setLoading(true)
+    try {
+      const params = period === 'last30' ? { status, period } : { status, month: period }
+      const resp = await api('/ads-campaigns', params)
+      setData(resp || { rows: [], total: null })
+    } finally { setLoading(false) }
+  }
+
+  useEffect(() => { load() }, [status, period])
+
+  return (
+    <div className="card" style={{ position: 'relative' }}>
+      <div className="card-header flex items-center justify-between">
+        <div className="flex items-center gap-2">Performance de Campanhas</div>
+        <div className="flex items-center gap-2">
+          <select value={status} onChange={e => setStatus(e.target.value)} className="border rounded px-2 py-1 text-sm">
+            <option value="enabled">Ativas</option>
+            <option value="all">Todas</option>
+          </select>
+          <select value={period} onChange={e => setPeriod(e.target.value)} className="border rounded px-2 py-1 text-sm">
+            <option value="last30">Últimos 30 dias</option>
+            {monthsOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="card-body overflow-auto" style={{ position: 'relative' }}>
+        {loading && (
+          <div className="loading-overlay">
+            <div className="flex flex-col items-center">
+              <div className="spinner"></div>
+              <div className="loading-text">Carregando dados…</div>
+            </div>
+          </div>
+        )}
+
+        <table className="table-campaigns">
+          <thead>
+            <tr>
+              <th>Campanha</th>
+              <th>Tipo</th>
+              <th className="cell-right">Clicks</th>
+              <th className="cell-right">%</th>
+              <th className="cell-right">Custo total</th>
+              <th className="cell-right">Custo médio</th>
+              <th className="cell-right">Conv. %</th>
+              <th className="cell-right">Custo Conv.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows?.map((r, i) => (
+              <tr key={i}>
+                <td>{r.name}</td>
+                <td>{r.type}</td>
+                <td className="cell-right">{r.clicks.toLocaleString('pt-BR')}</td>
+                <td className="cell-right">{formatPct2(r.interaction_rate)}</td>
+                <td className="cell-right">{formatBRL2(r.cost_total)}</td>
+                <td className="cell-right">{formatBRL2(r.avg_cpc)}</td>
+                <td className="cell-right">{formatPct2(r.conv_rate)}</td>
+                <td className="cell-right">{formatBRL2(r.cost_per_conv)}</td>
+              </tr>
+            ))}
+
+            {data.total && (
+              <tr>
+                <td><strong>Total</strong></td>
+                <td>—</td>
+                <td className="cell-right">
+                  <strong>{data.total.clicks.toLocaleString('pt-BR')}</strong>
+                </td>
+                <td className="cell-right">
+                  <strong>{formatPct2(data.total.interaction_rate)}</strong>
+                </td>
+                <td className="cell-right">
+                  <strong>{formatBRL2(data.total.cost_total)}</strong>
+                </td>
+                <td className="cell-right">
+                  <strong>{formatBRL2(data.total.avg_cpc)}</strong>
+                </td>
+                <td className="cell-right">
+                  <strong>{formatPct2(data.total.conv_rate)}</strong>
+                </td>
+                <td className="cell-right">
+                  <strong>{formatBRL2(data.total.cost_per_conv)}</strong>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function NetworksBreakdown() {
+  const [period, setPeriod] = useState('last30')
+  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState(null)
+  const [hoverKey, setHoverKey] = useState(null) // <- NOVO
+
+  const monthsOptions = useMemo(() => {
+    const now = new Date()
+    const y = now.getFullYear()
+    const labels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+    return Array.from({ length: now.getMonth() + 1 }, (_, i) => {
+      const mm = String(i + 1).padStart(2, '0')
+      return { value: `${y}-${mm}`, label: `${labels[i]}/${String(y).slice(-2)}` }
+    }).reverse()
+  }, [])
+
+  async function load() {
+    setLoading(true)
+    try {
+      const params = period === 'last30' ? { period } : { month: period }
+      const resp = await api('/ads-networks', params)
+      setData(resp)
+    } finally {
+      setLoading(false)
+    }
+  }
+  useEffect(() => { load() }, [period])
+
+  // Cores e rótulos PT-BR
+  const COLORS = { 'Google Search': '#2A8C99', 'Search partners': '#A8C6A6', 'Display Network': '#C4A981' }
+  const LABEL_PT = { 'Google Search': 'Pesquisa Google', 'Search partners': 'Parceiros de pesquisa', 'Display Network': 'Rede de Display' }
+
+  // 3 barras com shares (%)
+  const bars = useMemo(() => {
+    if (!data?.shares) return []
+    return [
+      { label: 'Conversões', key: 'conversions', ...data.shares.conversions },
+      { label: 'Custo', key: 'cost', ...data.shares.cost },
+      { label: 'Valor de conv.', key: 'conv_value', ...data.shares.conv_value },
+    ]
+  }, [data])
+
+  const hasData = bars.length > 0
+
+  // Helpers de formatação
+  const fmtPct1 = (v) => `${((v || 0) * 100).toFixed(1)}%`
+  const fmtBR = (v) => `R$${(v || 0).toFixed(2).replace('.', ',')}`
+  const fmtInt = (v) => (v || 0).toLocaleString('pt-BR')
+
+  // Tooltip customizado (valor absoluto + % do total) respeitando a série sob hover
+  const CustomTooltip = ({ active, payload }) => {
+    if (!active || !payload?.length || !data?.totals) return null
+    const items = payload.filter(it => typeof it.value === 'number')
+    const p = (hoverKey && items.find(it => it.dataKey === hoverKey)) || items[0]
+    if (!p) return null
+
+    const networkKey = p.dataKey
+    const row = p.payload || {}
+    const metricKey = row.key // 'conversions' | 'cost' | 'conv_value'
+    const share = p.value || 0
+    const total = data.totals[metricKey] || 0
+    const abs = share * total
+
+    const valueStr = metricKey === 'conversions' ? fmtInt(abs) : fmtBR(abs)
+    const tituloRede = LABEL_PT[networkKey] || networkKey
+    const labelMetric = row.label
+
+    return (
+      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 10px', boxShadow: '0 4px 14px rgba(0,0,0,0.06)' }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>{tituloRede}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+          <span style={{ display: 'inline-block', width: 10, height: 10, background: COLORS[networkKey], borderRadius: 2 }} />
+          <span>{labelMetric}:</span>
+          <strong style={{ marginLeft: 4 }}>{valueStr}</strong>
+        </div>
+        <div style={{ fontSize: 12, color: '#6D6A69', marginTop: 4 }}>({fmtPct1(share)} do total)</div>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="card"
+      style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}
+    >
+      <div className="card-header">
+        <div className="flex items-center justify-between">
+          <div>
+            <div>Redes (Google Ads)</div>
+            <div style={{ fontSize: 10, color: '#6D6A69', marginTop: 2 }}>
+              Resumo de como seus anúncios estão performando nessas redes
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <select value={period} onChange={e => setPeriod(e.target.value)} className="border rounded px-2 py-1 text-sm">
+              <option value="last30">Últimos 30 dias</option>
+              {monthsOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* legenda compacta dentro do header */}
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center', fontSize: 12, color: '#6D6A69', padding: '2px 0 8px 0' }}>
+          {Object.keys(COLORS).map(k => (
+            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 10, height: 10, background: COLORS[k], borderRadius: 2, display: 'inline-block' }} />
+              <span>{LABEL_PT[k] || k}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="card-body" style={{ minHeight: 320, position: 'relative', flex: 1 }}>
+        {loading && (
+          <div className="loading-overlay">
+            <div className="flex flex-col items-center"><div className="spinner"></div><div className="loading-text">Carregando dados…</div></div>
+          </div>
+        )}
+
+        {!hasData ? (
+          typeof EmptyState === 'function'
+            ? <EmptyState />
+            : <div className="text-sm text-gray-500">Sem dados para o período.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart layout="vertical" data={bars} margin={{ left: 24, right: 20, top: 4, bottom: 6 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" domain={[0, 1]} tickFormatter={v => `${(v * 100).toFixed(1)}%`} tick={{ fontSize: 12 }} />
+              <YAxis dataKey="label" type="category" width={110} tick={{ fontSize: 12 }} />
+              <Tooltip content={<CustomTooltip />} />
+              {Object.keys(COLORS).map(k => (
+                <Bar
+                  key={k}
+                  dataKey={k}
+                  stackId="share"
+                  fill={COLORS[k]}
+                  isAnimationActive={false}
+                  onMouseEnter={() => setHoverKey(k)}
+                  onMouseMove={() => setHoverKey(k)}
+                  onMouseLeave={() => setHoverKey(null)}
+                />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
+
+function WelcomeCard() {
+  return (
+    <div
+      className="card"
+      style={{
+        background: '#2A8C99',
+        color: '#fff',
+        borderColor: '#2A8C99',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div
+        className="card-header"
+        style={{ borderColor: 'rgba(255,255,255,0.35)', color: '#fff' }}
+      >
+        Bem-vindos ao C'alma Data
+      </div>
+
+      <div
+        className="card-body"
+        style={{
+          flex: 1,
+          minHeight: 320,
+          overflowY: 'auto',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 16,
+        }}
+      >
+        <div
+          style={{
+            whiteSpace: 'pre-wrap',
+            textAlign: 'center',
+            lineHeight: 1.8,
+            fontSize: '0.95rem',
+            maxWidth: 680,
+          }}
+        >
+          {`Uma ferramenta que reflete a essência da marca
+
+O Calma Data é mais do que um painel de indicadores: é uma janela estratégica para enxergar o coração da operação da Pousada Ilha Faceira. Assim como cada detalhe da pousada foi pensado para acolher, inspirar e encantar, esta ferramenta traduz a alma do negócio em dados acessíveis e significativos, ajudando a transformar números em decisões conscientes e cheias de propósito.
+
+Aqui, cada gráfico, cada indicador e cada tabela foi cuidadosamente desenhado para contar uma história: a história de como a pousada acolhe seus hóspedes, gera valor, e continua crescendo de forma autêntica, sustentável e coerente com sua identidade
+
+Se você tiver qualquer dúvidas, pergunta, sugestão de melhoria, ou simplesmente quiser falar com alguém sobre a ferramenta, basta clicar em um dos ícones “Fale com o Dev” espalhados ao longo da página, em cada componente (gráfico, card, etc).`}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+
+
+
+
+
+// === Monthly Report (PDF) ===
+function MonthlyReportButton({month}){
+  const [busy, setBusy] = useState(false)
+  const tip = "Você tem direito a 4 relatórios/mês"
+  async function generate(){
+    if(!month){ alert('Selecione um mês completo'); return }
+    setBusy(true)
+    try{
+      const res = await fetch(ensureApiBase('/monthly-report'), {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({month})
+      })
+      if(res.status===429){
+        const j = await res.json()
+        alert(j.detail || 'Limite mensal de 4 relatórios atingido.')
+        return
+      }
+      if(!res.ok){ throw new Error('Falha ao gerar resumo mensal') }
+      const data = await res.json()
+
+      // >>> AVISO GPT
+      if (data?.gpt && data.gpt.ok === false) {
+        if (data.gpt.reason === 'quota_exceeded') {
+          console.warn('OpenAI: cota excedida. Gerando PDF com textos padrão.')
+        } else if (data.gpt.reason === 'no_api_key') {
+          console.warn('OpenAI: chave OpenAI ausente. Gerando PDF com textos padrão.')
+        } else {
+          console.warn('OpenAI: indisponível. Gerando PDF com textos padrão.')
+        }
+      }
+
+      const imgs = await captureMonthlyCharts(month)
+      await buildMonthlyPdf(month, data, imgs)
+    } catch(e){
+      console.error(e)
+      alert('Não foi possível gerar o PDF agora. Tente novamente.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button
+      onClick={generate}
+      title={tip}
+      disabled={busy}
+      style={{background:'#A28C99', color:'#fff', border:'1px solid #6D6A69', borderRadius:8, padding:'8px 16px', fontWeight:600}}
+    >
+      {busy? 'Gerando…' : 'Resumo Mensal'}
+    </button>
+  )
+}
+
+async function buildMonthlyPdf(month, payload, imgs) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
+  const W = doc.internal.pageSize.getWidth()
+  const H = doc.internal.pageSize.getHeight()
+
+  // Layout base
+  const M = 40             // margem externa
+  const GAP = 18           // gap entre colunas
+  const COLW = (W - M * 2 - GAP) / 2
+  const IMG_H = 190        // altura das imagens dos gráficos
+
+  // Paleta do cabeçalho
+  const BRAND = { r: 42, g: 140, b: 153 }   // #2A8C99
+  const LINE = { r: 109, g: 106, b: 105 }  // #6D6A69
+
+  // Helpers de formatação p/ a tabela
+  const brl   = (v) => `R$${Number(v || 0).toFixed(2).replace('.', ',')}`
+  const asInt = (v) => Number(v || 0).toLocaleString('pt-BR')
+  const asPct = (v) => `${Number(v || 0).toFixed(1)}%`
+  const cellFmt = (metric, v) => (metric === 'Receita' || metric === 'CPC') ? brl(v) : asInt(v)
+
+  // Cabeçalho por página
+  function header(title) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(16)
+    doc.setTextColor(BRAND.r, BRAND.g, BRAND.b)
+    doc.text(title, M, M)
+    doc.setDrawColor(LINE.r, LINE.g, LINE.b)
+    doc.setLineWidth(1)
+    doc.line(M, M + 8, W - M, M + 8)
+    doc.setTextColor(0)
+  }
+
+  // Texto multilinha
+  function addText(txt, x, y, maxW, lh = 14, fs = 10) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(fs)
+    const words = (txt || '').toString().split(/\s+/)
+    let line = '', yy = y
+    for (let i = 0; i < words.length; i++) {
+      const test = (line ? line + ' ' : '') + words[i]
+      const w = doc.getTextWidth(test)
+      if (w > maxW) { doc.text(line, x, yy); yy += lh; line = words[i] }
+      else { line = test }
+    }
+    if (line) { doc.text(line, x, yy); yy += lh }
+    return yy
+  }
+
+  // ===== Página 1: Título + Tabela-resumo (AutoTable) + Resumo Executivo =====
+  header(`Resumo mensal – ${month}`)
+
+  const cur = payload.summary?.current || {}
+  const prev = payload.summary?.previous || {}
+  const dlt = payload.summary?.delta_pct || {}
+
+  // Linhas-base
+  const rowsRaw = [
+    ['Receita',     cur.receita,     prev.receita,     dlt.receita],
+    ['Reservas',    cur.reservas,    prev.reservas,    dlt.reservas],
+    ['Diárias',     cur.diarias,     prev.diarias,     dlt.diarias],
+    ['Clicks',      cur.clicks,      prev.clicks,      dlt.clicks],
+    ['Impressões',  cur.impressoes,  prev.impressoes,  dlt.impressoes],
+    ['CPC',         cur.cpc,         prev.cpc,         dlt.cpc],
+  ]
+  const rows = rowsRaw.map(r => [
+    r[0],
+    cellFmt(r[0], r[1]),
+    cellFmt(r[0], r[2]),
+    asPct(r[3])
+  ])
+
+  // Tabela-resumo (coluna esquerda) — travada com AutoTable
+  const tableStartY = M + 26
+  autoTable(doc, {
+    startY: tableStartY,
+    margin: { left: M, right: W - M - COLW }, // limita à coluna esquerda
+    tableWidth: COLW,
+    head: [['Indicador', 'Mês atual', 'Mês anterior', 'Δ%']],
+    body: rows,
+    styles: {
+      font: 'helvetica', fontSize: 10, cellPadding: 6,
+      lineColor: [LINE.r, LINE.g, LINE.b], lineWidth: 0.5, textColor: [LINE.r, LINE.g, LINE.b]
+    },
+    headStyles: { fillColor: [BRAND.r, BRAND.g, BRAND.b], textColor: 255, halign: 'left' },
+    alternateRowStyles: { fillColor: [250, 250, 247] },
+    columnStyles: {
+      1: { halign: 'right' },
+      2: { halign: 'right' },
+      3: { halign: 'right' }
+    }
+  })
+
+  // Coluna direita: Resumo Executivo (GPT ou fallback)
+  const rightX = M + COLW + GAP
+  let rightY = M + 26
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(BRAND.r, BRAND.g, BRAND.b)
+  doc.text('Análise (Resumo Executivo)', rightX, rightY)
+  doc.setTextColor(0); doc.setFont('helvetica', 'normal'); doc.setFontSize(10); rightY += 14
+
+  const resumoTexto =
+    payload.sections?.resumo
+    || (payload?.gpt?.reason === 'quota_exceeded'
+        ? 'Análise automática indisponível (cota da OpenAI excedida).'
+        : payload?.gpt?.reason === 'no_api_key'
+          ? 'Análise automática indisponível (chave OpenAI ausente).'
+          : 'Análise automática indisponível no momento.')
+
+  rightY = addText(resumoTexto, rightX, rightY, COLW, 14)
+
+  // ===== Página 2: Receita por UH =====
+  doc.addPage()
+  header('Receita por UH')
+  let leftY = M + 20
+  if (imgs?.uh) { doc.addImage(imgs.uh, 'PNG', M, leftY, COLW, IMG_H) }
+  else { doc.setDrawColor(196, 169, 129); doc.rect(M, leftY, COLW, IMG_H) }
+  let rightX2 = M + COLW + GAP, rightY2 = M + 20
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
+  doc.text('Análise – Receita por UH', rightX2, rightY2); rightY2 += 14
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
+  rightY2 = addText(payload.sections?.uh || '—', rightX2, rightY2, COLW, 14)
+
+  // ===== Página 3: Aquisição =====
+  doc.addPage()
+  header('Aquisição de Tráfego (Users)')
+  leftY = M + 20
+  if (imgs?.acq) { doc.addImage(imgs.acq, 'PNG', M, leftY, COLW, IMG_H) }
+  else { doc.setDrawColor(196, 169, 129); doc.rect(M, leftY, COLW, IMG_H) }
+  rightX2 = M + COLW + GAP; rightY2 = M + 20
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
+  doc.text('Análise – Aquisição', rightX2, rightY2); rightY2 += 14
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
+  rightY2 = addText(payload.sections?.acquisition || '—', rightX2, rightY2, COLW, 14)
+
+  // ===== Página 4: Preço Médio por Compra =====
+  doc.addPage()
+  header('Preço Médio Por Compra')
+  leftY = M + 20
+  if (imgs?.pmc) { doc.addImage(imgs.pmc, 'PNG', M, leftY, COLW, IMG_H) }
+  else { doc.setDrawColor(196, 169, 129); doc.rect(M, leftY, COLW, IMG_H) }
+  rightX2 = M + COLW + GAP; rightY2 = M + 20
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
+  doc.text('Análise – Preço Médio por Compra', rightX2, rightY2); rightY2 += 14
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
+  rightY2 = addText(payload.sections?.pmc || '—', rightX2, rightY2, COLW, 14)
+
+  // ===== Página 5: Redes =====
+  doc.addPage()
+  header('Redes (Google Ads)')
+  leftY = M + 20
+  if (imgs?.nets) { doc.addImage(imgs.nets, 'PNG', M, leftY, COLW, IMG_H) }
+  else { doc.setDrawColor(196, 169, 129); doc.rect(M, leftY, COLW, IMG_H) }
+  rightX2 = M + COLW + GAP; rightY2 = M + 20
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
+  doc.text('Análise – Redes', rightX2, rightY2); rightY2 += 14
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
+  rightY2 = addText(payload.sections?.networks || '—', rightX2, rightY2, COLW, 14)
+
+  // ===== Página 6: Conclusão =====
+  doc.addPage()
+  header('Análise consolidada do mês')
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(11)
+  addText(
+    payload.sections?.final ||
+      (payload?.gpt?.reason === 'quota_exceeded'
+        ? 'Análise automática indisponível (cota da OpenAI excedida).'
+        : payload?.gpt?.reason === 'no_api_key'
+          ? 'Análise automática indisponível (chave OpenAI ausente).'
+          : 'Análise automática indisponível no momento.'),
+    M, M + 24, W - M * 2, 16
+  )
+
+  doc.save(`Resumo_Mensal-${month}.pdf`)
+}
+
+
+
+function drawSectionHeader(doc, text, x, y) {
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(42, 140, 153)
+  doc.text(text, x, y)
+  doc.setTextColor(0)
+}
+
+function addMultilineText(doc, text, x, y, maxW, lh) {
+  const words = (text || '').toString().split(/\s+/)
+  let line = ''
+  let yy = y
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
+  for (let i = 0; i < words.length; i++) {
+    const test = (line ? line + ' ' : '') + words[i]
+    const w = doc.getTextWidth(test)
+    if (w > maxW) {
+      doc.text(line, x, yy); yy += lh; line = words[i]
+    } else {
+      line = test
+    }
+  }
+  if (line) { doc.text(line, x, yy); yy += lh }
+  return yy
+}
+
+function formatCell(v, key) {
+  if (key === 'CPC' || key === 'Receita') return `R$${Number(v || 0).toFixed(2).replace('.', ',')}`
+  if (typeof v === 'number') return v.toLocaleString('pt-BR')
+  return (v || 0)
+}
+
+function SnapshotCharts({ revUH, acq, pmc, nets, spanDays, onReady }) {
+  const revRef = React.useRef(null)
+  const acqRef = React.useRef(null)
+  const pmcRef = React.useRef(null)
+  const netRef = React.useRef(null)
+
+  const COLORS = { 'Google Search': '#2A8C99', 'Search partners': '#A8C6A6', 'Display Network': '#C4A981' }
+  const bars = React.useMemo(() => {
+    const s = nets?.shares || {}
+    if (!s.conversions || !s.cost || !s.conv_value) return []
+    return [
+      { label: 'Conversões', ...s.conversions },
+      { label: 'Custo', ...s.cost },
+      { label: 'Valor de conv.', ...s.conv_value },
+    ]
+  }, [nets])
+
+  const revChartData = React.useMemo(() => (revUH?.points || []).map(p => ({ date: p.date, ...(p.values || {}) })), [revUH])
+  const acqChartData = React.useMemo(() => (acq?.points || []).map(p => ({ date: p.date, ...(p.values || {}) })), [acq])
+  const pmcChartData = React.useMemo(() => (pmc?.points || []).map(p => ({ date: p.date, PMC: p.adr })), [pmc])
+
+  React.useEffect(() => {
+    const cap = async () => {
+      // pequeno delay para garantir paint
+      await new Promise(r => setTimeout(r, 500))
+      const opts = { cacheBust: true, pixelRatio: 2, backgroundColor: '#fff' }
+      const [imgRev, imgAcq, imgPmc, imgNet] = await Promise.all([
+        toPng(revRef.current, opts),
+        toPng(acqRef.current, opts),
+        toPng(pmcRef.current, opts),
+        toPng(netRef.current, opts),
+      ])
+      onReady({ uh: imgRev, acq: imgAcq, pmc: imgPmc, nets: imgNet })
+    }
+    cap()
+  }, [revUH, acq, pmc, nets, onReady])
+
+  const boxStyle = { width: 560, height: 210, background: '#fff', border: '1px solid #eee', borderRadius: 8, padding: 8 }
+
+  return (
+    <div style={{ position: 'fixed', left: '-10000px', top: 0, width: 1200, padding: 20, background: '#fff', zIndex: -1 }}>
+      {/* Receita por UH */}
+      <div ref={revRef} style={boxStyle}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={revChartData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+            <YAxis tickFormatter={(v) => formatBRLShort(v)} tick={{ fontSize: 11 }} />
+            <Tooltip formatter={(v) => formatBRLShort(v)} />
+            {(() => {
+              const keys = getSeriesKeys(revChartData)
+              return keys.map((k, i) => <Bar key={k} dataKey={k} stackId="rev" fill={PALETTE[i % PALETTE.length]} />)
+            })()}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Aquisição */}
+      <div ref={acqRef} style={{ ...boxStyle, marginTop: 16 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={acqChartData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} />
+            <Tooltip />
+            {(() => {
+              const keys = getSeriesKeys(acqChartData)
+              return keys.map((k, i) => <Line key={k} type="linear" dataKey={k} strokeWidth={2} dot={false} stroke={PALETTE[i % PALETTE.length]} />)
+            })()}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Preço Médio por Compra */}
+      <div ref={pmcRef} style={{ ...boxStyle, marginTop: 16 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={pmcChartData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+            <YAxis tickFormatter={(v) => formatBRLShort(v)} tick={{ fontSize: 11 }} />
+            <Tooltip formatter={(v) => formatBRLShort(v)} />
+            <Area type="linear" dataKey="PMC" stroke="#2A8C99" fill="#A8C6A6" strokeWidth={2} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Redes */}
+      <div ref={netRef} style={{ ...boxStyle, marginTop: 16 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart layout="vertical" data={bars} margin={{ left: 30, right: 14, top: 6, bottom: 6 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis type="number" domain={[0, 1]} tickFormatter={(v) => `${(v * 100).toFixed(1)}%`} tick={{ fontSize: 11 }} />
+            <YAxis dataKey="label" type="category" width={110} tick={{ fontSize: 11 }} />
+            <Tooltip formatter={(v, k) => [`${(v * 100).toFixed(1)}%`, k]} />
+            {Object.keys(COLORS).map(k => (<Bar key={k} dataKey={k} stackId="share" fill={COLORS[k]} />))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
+async function captureMonthlyCharts(month) {
+  const datasets = await fetchMonthlyDatasets(month)
+  return new Promise((resolve) => {
+    const mount = document.createElement('div')
+    document.body.appendChild(mount)
+    const root = ReactDOM.createRoot(mount)
+    const handleReady = (imgs) => {
+      setTimeout(() => { root.unmount(); mount.remove() }, 0)
+      resolve(imgs)
+    }
+    root.render(
+      <SnapshotCharts
+        revUH={datasets.revUH}
+        acq={datasets.acq}
+        pmc={datasets.pmc}
+        nets={datasets.nets}
+        spanDays={datasets.spanDays}
+        onReady={handleReady}
+      />
+    )
+  })
+}
+
+// === Sobre: exibe o PDF em-embutido dentro do app ===
+function AboutPage(){
+  // altura: ocupa a área do conteúdo; ajuste se quiser mais/menos
+  return (
+    <div className="card" style={{ height: 'calc(100vh - 160px)' }}>
+      <div className="card-header">Sobre</div>
+      <div className="card-body" style={{ height: '100%', padding: 0 }}>
+        <iframe
+          title="Sobre"
+          src="/sobre/sobre.pdf"
+          style={{ width: '100%', height: '100%', border: 'none' }}
+        />
+      </div>
+    </div>
+  )
+}
+
+
 export default function App() {
   const { mode, setMode, custom, setCustom, range } = useDateRange('7d')
   const { loading, data } = useDashboardData(range)
+
+
   const spanDays = useMemo(() => {
     const s = new Date(range.start); const e = new Date(range.end)
     return Math.round((e - s) / (1000 * 60 * 60 * 24)) + 1
@@ -821,38 +1593,18 @@ export default function App() {
             </div>
           </section>
 
-          {/* Tabela */}
-          <div className="card" style={{ position: 'relative' }}>
-            <div className="card-header">Performance de Campanhas (Geral)</div>
-            <div className="card-body overflow-auto" style={{ position: 'relative' }}>
-              <table className="min-w-full text-sm" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
-                <thead>
-                  <tr className="text-left">
-                    {['Campanha', 'Cliques', 'Impressões', 'CTR', 'CPC', 'Custo', 'Receita', 'ROAS'].map(h => (
-                      <th key={h} className="py-2 pr-4">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {data?.table?.rows?.map((r, i) => (
-                    <tr key={i} className="border-t border-gray-100">
-                      <td className="py-2 pr-4">{r.name}</td>
-                      <td className="py-2 pr-4">{r.clicks}</td>
-                      <td className="py-2 pr-4">{r.impressoes}</td>
-                      <td className="py-2 pr-4">{(r.ctr * 100).toFixed(2)}%</td>
-                      <td className="py-2 pr-4">{`R$${(r.cpc || 0).toFixed(2).replace('.', ',')}`}</td>
-                      <td className="py-2 pr-4">{`R$${(r.custo || 0).toFixed(2).replace('.', ',')}`}</td>
-                      <td className="py-2 pr-4">{formatBRLShort(r.receita)}</td>
-                      <td className="py-2 pr-4">{r.roas}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <CampaignsTable />
+
+          <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+            <div className="lg:col-span-6 h-full"><NetworksBreakdown /></div>
+            <div className="lg:col-span-6 h-full"><WelcomeCard /></div>
+          </section>
+
+
 
         </main>
       </div>
     </div>
   )
 }
+

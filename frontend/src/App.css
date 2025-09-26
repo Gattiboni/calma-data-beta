@@ -244,3 +244,55 @@ body {
   font-size: 12px;
   color: #6D6A69;
 }
+
+.table-campaigns {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.table-campaigns thead th {
+  position: sticky;
+  top: 0;
+  background: #FAFAF7; /* surface */
+  /* color: #6D6A69; */
+  border-bottom: 2px solid #C4A981; /* primary */
+  padding: 10px 12px;
+  font-weight: 600;
+  z-index: 1;
+}
+
+.table-campaigns tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #ECECEC;
+  color: #6D6A69;
+}
+
+.table-campaigns tbody tr:nth-child(odd) {
+  background: #FFFFFF;
+}
+
+.table-campaigns tbody tr:nth-child(even) {
+  background: #F7F7F4;
+}
+
+.table-campaigns tfoot td {
+  padding: 12px;
+  border-top: 2px solid #C4A981;
+  font-weight: 700;
+  background: #FAFAF7;
+}
+
+.cell-right {
+  text-align: right;
+}
+
+.badge-filter {
+  border: 1px solid #C4A981;
+  color: #6D6A69;
+  background: #FFFFFF;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+}

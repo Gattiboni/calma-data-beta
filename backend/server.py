@@ -2,7 +2,7 @@ from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import os
 import random
 from pathlib import Path
@@ -32,6 +32,31 @@ ADS_CUSTOMER_ID = os.environ.get("ADS_CUSTOMER_ID")
 ADS_OAUTH_CLIENT_ID = os.environ.get("ADS_OAUTH_CLIENT_ID")
 ADS_OAUTH_CLIENT_SECRET = os.environ.get("ADS_OAUTH_CLIENT_SECRET")
 ADS_OAUTH_REFRESH_TOKEN = os.environ.get("ADS_OAUTH_REFRESH_TOKEN")
+
+# ----- OpenAI (opcional) -----
+try:
+    from openai import OpenAI
+except Exception as _e:
+    OpenAI = None
+
+openai_client = None
+try:
+    if os.environ.get("OPENAI_API_KEY") and OpenAI:
+        openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+except Exception as e:
+    print("[OPENAI] init failed:", e)
+
+# ----- Mongo (opcional) -----
+mongo_client = None
+mongo_db = None
+try:
+    from pymongo import MongoClient
+    MONGO_URL = os.environ.get("MONGO_URL")
+    if MONGO_URL:
+        mongo_client = MongoClient(MONGO_URL, uuidRepresentation="standard")
+        mongo_db = mongo_client.get_database()
+except Exception as e:
+    print("[MONGO] init failed:", e)
 
 # -------------------- CLIENT INIT --------------------
 
@@ -625,6 +650,393 @@ def ads_campaign_rows(start: str, end: str) -> Optional[List[Dict[str, Any]]]:
         })
     return rows
 
+def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
+    if not ads_client or not ADS_CUSTOMER_ID:
+        return None
+
+    service = ads_client.get_service("GoogleAdsService")
+    customer_id = ADS_CUSTOMER_ID.replace("-", "")
+
+    # Monta WHERE só com AND (GAQL não suporta OR)
+    conditions = [f"segments.date BETWEEN '{start}' AND '{end}'"]
+
+    if status == "enabled":
+        # "Ativas": espelha a UI -> Eligible / Eligible (Limited)
+        conditions.append("campaign.primary_status IN (ELIGIBLE, LIMITED)")
+
+    # Garante atividade no período (sem OR): usamos impressões > 0
+    conditions.append("metrics.impressions > 0")
+
+    where_clause = " AND ".join(conditions)
+
+    query = f"""
+        SELECT
+          campaign.name,
+          campaign.advertising_channel_type,
+          campaign.status,
+          campaign.primary_status,
+          metrics.clicks,
+          metrics.impressions,
+          metrics.interactions,
+          metrics.interaction_rate,
+          metrics.cost_micros,
+          metrics.average_cpc,
+          metrics.conversions,
+          metrics.conversions_from_interactions_rate
+        FROM campaign
+        WHERE {where_clause}
+    """
+
+    # print("GAQL:\n", query)  # útil pra depurar
+
+    resp = service.search(customer_id=customer_id, query=query)
+
+    rows = []
+    totals = {
+        "clicks": 0,
+        "impressions": 0,
+        "interactions": 0,
+        "cost": 0.0,
+        "conversions": 0.0,
+    }
+
+    for r in resp:
+        clicks = int(r.metrics.clicks or 0)
+        imps = int(r.metrics.impressions or 0)
+        inter = int(r.metrics.interactions or 0)
+        cost = (r.metrics.cost_micros or 0) / 1_000_000
+        avg_cpc = (r.metrics.average_cpc or 0) / 1_000_000
+        conv = float(r.metrics.conversions or 0)
+        ir = float(r.metrics.interaction_rate or 0)
+        cfr = float(r.metrics.conversions_from_interactions_rate or 0)
+
+        # Fallbacks defensivos
+        if ir == 0 and imps > 0 and inter > 0:
+            ir = inter / imps
+        if cfr == 0 and inter > 0 and conv > 0:
+            cfr = conv / inter
+
+        cpcv = (cost / conv) if conv > 0 else 0.0
+
+        rows.append({
+            "name": r.campaign.name,
+            "type": (
+                r.campaign.advertising_channel_type.name
+                if hasattr(r.campaign.advertising_channel_type, "name")
+                else str(r.campaign.advertising_channel_type)
+            ),
+            "clicks": clicks,
+            "interaction_rate": ir,
+            "cost_total": round(cost, 2),
+            "avg_cpc": round(avg_cpc if avg_cpc else (cost / clicks if clicks else 0), 2),
+            "conv_rate": cfr,
+            "cost_per_conv": round(cpcv, 2),
+        })
+
+        totals["clicks"] += clicks
+        totals["impressions"] += imps
+        totals["interactions"] += inter
+        totals["cost"] += cost
+        totals["conversions"] += conv
+
+    rows.sort(key=lambda x: x["cost_total"], reverse=True)
+
+    tot_ir = (totals["interactions"] / totals["impressions"]) if totals["impressions"] else 0.0
+    tot_cfr = (totals["conversions"] / totals["interactions"]) if totals["interactions"] else 0.0
+    tot_cpcv = (totals["cost"] / totals["conversions"]) if totals["conversions"] else 0.0
+    tot_avg_cpc = (totals["cost"] / totals["clicks"]) if totals["clicks"] else 0.0
+
+    total_row = {
+        "name": "Total",
+        "type": "—",
+        "clicks": totals["clicks"],
+        "interaction_rate": tot_ir,
+        "cost_total": round(totals["cost"], 2),
+        "avg_cpc": round(tot_avg_cpc, 2),
+        "conv_rate": tot_cfr,
+        "cost_per_conv": round(tot_cpcv, 2),
+    }
+
+    return {"rows": rows, "total": total_row}
+
+def ads_networks_breakdown(start: str, end: str):
+    """
+    Retorna totais e percentuais por rede (Google Search, Search partners, Display Network)
+    para métricas: conversions, cost, conversions_value.
+    Mapeamento:
+      - Google Search: segments.ad_network_type = SEARCH
+      - Search partners: segments.ad_network_type = SEARCH_PARTNERS
+      - Display Network: DISPLAY + YOUTUBE_SEARCH + YOUTUBE_WATCH
+    """
+    if not ads_client or not ADS_CUSTOMER_ID:
+        return None
+
+    service = ads_client.get_service("GoogleAdsService")
+    customer_id = ADS_CUSTOMER_ID.replace("-", "")
+
+    query = f"""
+      SELECT
+        segments.ad_network_type,
+        metrics.clicks,
+        metrics.impressions,
+        metrics.cost_micros,
+        metrics.conversions,
+        metrics.conversions_value
+      FROM campaign
+      WHERE segments.date BETWEEN '{start}' AND '{end}'
+    """
+
+    resp = service.search(customer_id=customer_id, query=query)
+
+    nets = {
+        "Google Search": {"conversions": 0.0, "cost": 0.0, "conv_value": 0.0},
+        "Search partners": {"conversions": 0.0, "cost": 0.0, "conv_value": 0.0},
+        "Display Network": {"conversions": 0.0, "cost": 0.0, "conv_value": 0.0},
+    }
+
+    def bucket_name(net):
+        # net é um enum: SEARCH, SEARCH_PARTNERS, DISPLAY, YOUTUBE_SEARCH, YOUTUBE_WATCH, etc.
+        n = net.name if hasattr(net, "name") else str(net)
+        if "SEARCH_PARTNERS" in n:
+            return "Search partners"
+        if n == "SEARCH":
+            return "Google Search"
+        if n in ("DISPLAY", "YOUTUBE_SEARCH", "YOUTUBE_WATCH") or "DISPLAY" in n or "YOUTUBE" in n:
+            return "Display Network"
+        # fallback: agrega em Display
+        return "Display Network"
+
+    for row in resp:
+        net_label = bucket_name(row.segments.ad_network_type)
+        cost = (row.metrics.cost_micros or 0) / 1_000_000
+        nets[net_label]["conversions"] += float(row.metrics.conversions or 0)
+        nets[net_label]["cost"] += float(cost)
+        nets[net_label]["conv_value"] += float(row.metrics.conversions_value or 0)
+
+    totals = {
+        "conversions": sum(v["conversions"] for v in nets.values()),
+        "cost": sum(v["cost"] for v in nets.values()),
+        "conv_value": sum(v["conv_value"] for v in nets.values()),
+    }
+
+    def pct(val, tot):
+        return (val / tot) if tot else 0.0
+
+    shares = {
+        "conversions": {k: pct(v["conversions"], totals["conversions"]) for k, v in nets.items()},
+        "cost": {k: pct(v["cost"], totals["cost"]) for k, v in nets.items()},
+        "conv_value": {k: pct(v["conv_value"], totals["conv_value"]) for k, v in nets.items()},
+    }
+
+    return {"nets": nets, "totals": totals, "shares": shares}
+
+# -------------------- MONTHLY REPORT HELPERS (OpenAI + Mongo quota) --------------------
+
+class MonthlyReportRequest(BaseModel):
+    month: str  # 'YYYY-MM'
+
+def prev_month_str(month_str: str) -> str:
+    y, m = [int(x) for x in month_str.split("-")]
+    return f"{y-1}-12" if m == 1 else f"{y}-{str(m-1).zfill(2)}"
+
+def current_month_str() -> str:
+    today = date.today()
+    return f"{today.year}-{str(today.month).zfill(2)}"
+
+def quota_get_used(period: str) -> int:
+    if not mongo_db:
+        return 0
+    coll = mongo_db["monthly_report_usage"]
+    doc = coll.find_one({"period": period}, {"_id": 0})
+    return int(doc.get("count", 0)) if doc else 0
+
+def quota_increment(period: str) -> int:
+    if not mongo_db:
+        return 0
+    coll = mongo_db["monthly_report_usage"]
+    res = coll.find_one_and_update(
+        {"period": period},
+        {"$inc": {"count": 1}, "$setOnInsert": {"period": period}},
+        upsert=True,
+        return_document=True
+    )
+    return int(res.get("count", 0)) if res else quota_get_used(period)
+
+def quota_require(period: str, limit: int = 4):
+    used = quota_get_used(period)
+    if used >= limit:
+        raise HTTPException(status_code=429, detail="Limite mensal de 4 relatórios atingido.")
+    return used
+
+def kpis_month(start: str, end: str) -> Dict[str, Any]:
+    """Receita (GA4), Reservas (GA4), Diárias (itemsPurchased), Clicks/Impressões/CPC (Ads)."""
+    receita = ga4_sum_item_revenue(start, end) or 0.0
+    try:
+        reservas = ga4_count_reservations(start, end) or 0
+    except Exception:
+        reservas = 0
+    try:
+        rows = ga4_revenue_qty_by_date(start, end) or []
+        diarias = int(round(sum((r.get("qty") or 0) for r in rows)))
+    except Exception:
+        diarias = 0
+    clicks = impressoes = 0
+    custo = cpc = 0.0
+    try:
+        ads = ads_totals(start, end) or {}
+        clicks = int(ads.get("clicks") or 0)
+        impressoes = int(ads.get("impressoes") or 0)
+        custo = float(ads.get("custo") or 0)
+        cpc = float(ads.get("cpc") or (custo / clicks if clicks else 0))
+    except Exception:
+        pass
+    return {
+        "receita": round(receita, 2),
+        "reservas": int(reservas),
+        "diarias": int(diarias),
+        "clicks": clicks,
+        "impressoes": impressoes,
+        "cpc": round(cpc, 2)
+    }
+
+def uh_totals_month(start: str, end: str) -> Dict[str, float]:
+    """Total de receita por UH no mês."""
+    out: Dict[str, float] = {}
+    try:
+        rows = ga4_revenue_by_item_per_day(start, end) or []
+        for p in rows:
+            for k, v in (p.get("values") or {}).items():
+                out[k] = (out.get(k, 0) + (v or 0))
+    except Exception:
+        pass
+    return {k: round(v, 2) for k, v in out.items()}
+
+def acq_totals_month(start: str, end: str) -> Dict[str, float]:
+    """Total de usuários por canal no mês (primeiro primary; fallback default)."""
+    res: Dict[str, float] = {}
+    try:
+        def run_dim(dim):
+            from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest
+            req = RunReportRequest(
+                property=f"properties/{GA4_PROPERTY_ID}",
+                dimensions=[Dimension(name=dim)],
+                metrics=[Metric(name="users")],
+                date_ranges=[DateRange(start_date=start, end_date=end)],
+                limit=250000,
+            )
+            resp = ga4_client.run_report(req)
+            tmp = {}
+            for row in resp.rows:
+                ch = row.dimension_values[0].value or "Unassigned"
+                tmp[ch] = (tmp.get(ch, 0) + float(row.metric_values[0].value or 0))
+            return tmp
+        try:
+            res = run_dim("firstUserPrimaryChannelGroup")
+        except Exception:
+            res = run_dim("firstUserDefaultChannelGroup")
+    except Exception:
+        pass
+    return {k: round(v, 2) for k, v in res.items()}
+
+def pmc_series_month(start: str, end: str) -> List[Dict[str, Any]]:
+    """Preço Médio por Compra por dia do mês (itemRevenue/itemsPurchased)."""
+    try:
+        rows = ga4_revenue_qty_by_date(start, end) or []
+        out = []
+        for r in rows:
+            adr = (r["revenue"] / r["qty"]) if r.get("qty") else 0.0
+            out.append({"date": r["date"], "pmc": round(adr, 2)})
+        return out
+    except Exception:
+        return []
+
+def networks_month(start: str, end: str) -> Dict[str, Any]:
+    try:
+        return ads_networks_breakdown(start, end) or {"nets": {}, "totals": {}, "shares": {}}
+    except Exception:
+        return {"nets": {}, "totals": {}, "shares": {}}
+
+def build_gpt_prompt_pt(month: str, prev_month: str, data: Dict[str, Any]) -> str:
+    return f"""
+Você é um analista de dados sênior e vai gerar um relatório mensal (PT-BR) com insights claros e acionáveis.
+Sempre responda em JSON com as chaves: resumo, uh, acquisition, pmc, networks, final.
+
+Contexto:
+- Mês analisado: {month}
+- Mês anterior: {prev_month}
+
+Tabela-resumo (mês atual vs anterior) e métricas de comparação:
+{json.dumps(data.get("summary"), ensure_ascii=False, indent=2)}
+
+Receita por UH (totais no mês):
+{json.dumps(data.get("uh"), ensure_ascii=False, indent=2)}
+
+Aquisição por canal (totais de usuários no mês):
+{json.dumps(data.get("acq"), ensure_ascii=False, indent=2)}
+
+Preço Médio por Compra por dia (itemRevenue/itemsPurchased):
+{json.dumps((data.get("pmc") or [])[:7], ensure_ascii=False, indent=2)} ... (demais dias)
+
+Redes Google Ads (shares por Conversions, Cost, Conv. value):
+{json.dumps(data.get("networks", {}).get("shares", {}), ensure_ascii=False, indent=2)}
+
+Instruções:
+- Compare {month} com {prev_month} em todos os pontos possíveis
+- Destaque tendências, anomalias e oportunidades
+- Para Redes: considere que menor participação de Display em conversões tende a reduzir dependência de OTAs e comissionamento
+- No texto, NÃO inclua código; retorne APENAS JSON válido com as chaves pedidas
+"""
+
+def run_gpt_sections_safe(prompt: str) -> tuple[dict, dict]:
+    """
+    Tenta gerar as seções via OpenAI.
+    Retorno: (sections_dict, meta_dict)
+    meta = {"ok": bool, "reason": "ok" | "quota_exceeded" | "no_api_key" | "error"}
+    """
+    def fallback_sections():
+        return {
+            "resumo": "Análise automática indisponível no momento.",
+            "uh": "—",
+            "acquisition": "—",
+            "pmc": "—",
+            "networks": "—",
+            "final": "—"
+        }
+
+    if not openai_client:
+        return fallback_sections(), {"ok": False, "reason": "no_api_key"}
+
+    try:
+        model = os.environ.get("OPENAI_MODEL", "gpt-5")
+        resp = openai_client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "Você é um analista de dados brasileiro. Responda somente em JSON válido."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=1600
+        )
+        content = (resp.choices[0].message.content or "").strip()
+        try:
+            sections = json.loads(content)
+        except Exception:
+            sections = {
+                "resumo": content,
+                "uh": "—",
+                "acquisition": "—",
+                "pmc": "—",
+                "networks": "—",
+                "final": "—"
+            }
+        return sections, {"ok": True, "reason": "ok"}
+    except Exception as e:
+        msg = str(e).lower()
+        if "429" in msg or "quota" in msg:
+            return fallback_sections(), {"ok": False, "reason": "quota_exceeded"}
+        return fallback_sections(), {"ok": False, "reason": "error"}
+
+
 # -------------------- ENDPOINTS --------------------
 @app.get("/api/kpis", response_model=KPIResponse)
 async def get_kpis(start: str = Query(...), end: str = Query(...), refresh: Optional[int] = 0):
@@ -677,7 +1089,7 @@ async def acquisition_by_channel(metric: str = Query("users"), start: str = Quer
                 date_ranges=[DateRange(start_date=start, end_date=end)],
             )
             resp = ga4_client.run_report(req)
-            bucket: Dict[str, Dict[str, float]] = {}
+            bucket: Dict[str, Dict[str, Any]] = {}
             for row in resp.rows:
                 ch = row.dimension_values[0].value or "Unassigned"
                 d = row.dimension_values[1].value  # YYYYMMDD
@@ -868,6 +1280,189 @@ async def marketing_dials(start: str = Query(...), end: str = Query(...), refres
     payload = {"cr": cr_pack, "roas": roas_pack}
     cache.set(key, payload)
     return payload
+
+# -------------------------------------------------------------------
+# Novo endpoint: /api/ads-campaigns
+# -------------------------------------------------------------------
+
+from typing import Optional
+from datetime import datetime, timedelta
+from fastapi import Query, HTTPException
+
+def month_bounds(month_str: str):
+    """Retorna tupla (start, end) no formato YYYY-MM-DD para o mês informado (YYYY-MM)."""
+    try:
+        year, month = [int(x) for x in month_str.split("-")]
+        start = datetime(year, month, 1)
+        if month == 12:
+            end = datetime(year, 12, 31)
+        else:
+            end = datetime(year, month + 1, 1) - timedelta(days=1)
+        return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+    except Exception:
+        return None, None
+
+
+@app.get("/api/ads-campaigns")
+async def ads_campaigns(
+    status: str = Query("enabled"),
+    period: str = Query("last30"),
+    month: Optional[str] = None,
+    refresh: Optional[int] = 0,
+):
+    """Endpoint para listar campanhas do Google Ads com filtros de período e status."""
+    
+    cache_key = f"ads-campaigns-{status}-{period}-{month or ''}"
+    if not refresh:
+        cached = cache.get(cache_key, ttl_seconds=10 * 60)
+        if cached:
+            return cached
+
+    # Resolve intervalo
+    if month:
+        start, end = month_bounds(month)
+        if not start:
+            raise HTTPException(
+                status_code=422,
+                detail="month deve estar no formato YYYY-MM"
+            )
+    else:
+        # Últimos 30 dias
+        end_dt = datetime.utcnow().date()
+        start_dt = end_dt - timedelta(days=29)
+        start = start_dt.strftime("%Y-%m-%d")
+        end = end_dt.strftime("%Y-%m-%d")
+
+    payload = {
+        "rows": [],
+        "total": None,
+        "start": start,
+        "end": end,
+        "status": status,
+    }
+
+    try:
+        res = ads_campaigns_filtered(start, end, status)
+        if res:
+            payload.update(res)
+    except Exception as e:
+        print(f"[ADS] /api/ads-campaigns failed: {e}")
+
+    cache.set(cache_key, payload)
+    return payload
+
+@app.get("/api/ads-networks")
+async def ads_networks(
+    period: str = Query("last30"),
+    month: Optional[str] = None,
+    refresh: Optional[int] = 0,
+):
+    cache_key = f"ads-networks-{period}-{month or ''}"
+    if not refresh:
+        cached = cache.get(cache_key, ttl_seconds=10 * 60)
+        if cached:
+            return cached
+
+    # Resolve intervalo
+    if month:
+        start, end = month_bounds(month)
+        if not start:
+            raise HTTPException(status_code=422, detail="month deve estar no formato YYYY-MM")
+    else:
+        end_dt = datetime.utcnow().date()
+        start_dt = end_dt - timedelta(days=29)
+        start, end = start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d")
+
+    payload = {"start": start, "end": end, "rows": []}
+    try:
+        res = ads_networks_breakdown(start, end)
+        if res:
+            payload.update(res)
+    except Exception as e:
+        print(f"[ADS] /api/ads-networks failed: {e}")
+
+    cache.set(cache_key, payload)
+    return payload
+
+# -------------------- MONTHLY REPORT ENDPOINT --------------------
+
+@app.post("/api/monthly-report")
+async def monthly_report(req: MonthlyReportRequest):
+    # Validar mês
+    try:
+        assert len(req.month) == 7 and req.month[4] == "-"
+        _y, _m = [int(x) for x in req.month.split("-")]
+    except Exception:
+        raise HTTPException(status_code=422, detail="Formato inválido. Use YYYY-MM.")
+    # Mês vigente indisponível
+    if req.month == current_month_str():
+        raise HTTPException(status_code=422, detail="O mês vigente só fica disponível no 1º dia do mês seguinte.")
+    # Limite (contabilizamos por mês de EXECUÇÃO)
+    exec_period = current_month_str()
+    _ = quota_require(exec_period, limit=4)
+
+    # Intervalos
+    start, end = month_bounds(req.month)
+    if not start:
+        raise HTTPException(status_code=422, detail="Formato inválido. Use YYYY-MM.")
+    prev_m = prev_month_str(req.month)
+    prev_start, prev_end = month_bounds(prev_m)
+
+    # Dados (mês e anterior)
+    kpi_curr = kpis_month(start, end)
+    kpi_prev = kpis_month(prev_start, prev_end)
+
+    # UH, Aquisição, PMC, Redes (para o mês)
+    uh = uh_totals_month(start, end)
+    acq = acq_totals_month(start, end)
+    pmc = pmc_series_month(start, end)
+    nets = networks_month(start, end)
+
+    # Tabela-resumo + delta
+    def delta(a, b):
+        if b == 0:
+            return (100.0 if a > 0 else 0.0)
+        return round((a - b) / b * 100.0, 1)
+
+    summary = {
+        "current": kpi_curr,
+        "previous": kpi_prev,
+        "delta_pct": {
+            "receita": delta(kpi_curr["receita"], kpi_prev["receita"]),
+            "reservas": delta(kpi_curr["reservas"], kpi_prev["reservas"]),
+            "diarias": delta(kpi_curr["diarias"], kpi_prev["diarias"]),
+            "clicks": delta(kpi_curr["clicks"], kpi_prev["clicks"]),
+            "impressoes": delta(kpi_curr["impressoes"], kpi_prev["impressoes"]),
+            "cpc": delta(kpi_curr["cpc"], kpi_prev["cpc"]),
+        }
+    }
+
+    payload_for_gpt = {
+        "summary": summary,
+        "uh": uh,
+        "acq": acq,
+        "pmc": pmc,
+        "networks": nets
+    }
+
+    prompt = build_gpt_prompt_pt(req.month, prev_m, payload_for_gpt)
+    sections, gpt_meta = run_gpt_sections_safe(prompt)
+
+    # Se GPT ok: incrementa; se falhou, NÃO incrementa
+    if gpt_meta.get("ok"):
+        new_used = quota_increment(exec_period)
+    else:
+        new_used = quota_get_used(exec_period)  # mantém uso atual
+    remaining = max(0, 4 - new_used)
+
+    return {
+        "month": req.month,
+        "prev_month": prev_m,
+        "summary": summary,
+        "sections": sections,
+        "quota": {"allowed": 4, "used": new_used, "remaining": remaining},
+        "gpt": gpt_meta
+    }
 
 
 # -------------------- HEALTH --------------------
