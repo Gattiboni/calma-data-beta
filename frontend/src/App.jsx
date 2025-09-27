@@ -1592,6 +1592,111 @@ function SettingsComingSoon({ onBack }) {
   )
 }
 
+function FeedbackModal({ open, onClose }) {
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [message, setMessage] = useState('')
+  const [component, setComponent] = useState('Geral')
+  const [files, setFiles] = useState([])
+  const [busy, setBusy] = useState(false)
+  const components = [
+    'Geral',
+    'KPIs',
+    'Receita por UH',
+    'Aquisição (Users)',
+    'Preço Médio por Compra',
+    'Redes (Google Ads)',
+    'Tabela de Campanhas',
+    'Sobre / PDF',
+    'Outro'
+  ]
+  if (!open) return null
+
+  async function onSubmit(e) {
+    e.preventDefault()
+    setBusy(true)
+    try {
+      const fd = new FormData()
+      fd.append('name', name)
+      fd.append('email', email)
+      fd.append('message', message)
+      fd.append('component', component)
+      for (const f of files) fd.append('files', f)
+
+      const res = await fetch('/api/feedback', { method: 'POST', body: fd })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j?.detail || 'Falha ao enviar')
+
+      alert('Feedback enviado! Obrigado por contribuir.')
+      onClose()
+      setName('')
+      setEmail('')
+      setMessage('')
+      setComponent('Geral')
+      setFiles([])
+    } catch (err) {
+      console.error(err)
+      alert('Não foi possível enviar agora. Tente novamente mais tarde.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div>Fale com o Dev</div>
+          <button className="btn-ghost" onClick={onClose}>Fechar</button>
+        </div>
+        <div className="modal-body">
+          <form onSubmit={onSubmit} className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm block mb-1">Seu nome</label>
+                <input className="input" value={name} onChange={e => setName(e.target.value)} required />
+              </div>
+              <div>
+                <label className="text-sm block mb-1">Seu email</label>
+                <input type="email" className="input" value={email} onChange={e => setEmail(e.target.value)} required />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm block mb-1">Componente relacionado</label>
+                <select className="select" value={component} onChange={e => setComponent(e.target.value)}>
+                  {components.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm block mb-1">Anexos (opcional)</label>
+                <input type="file" multiple className="input" onChange={e => setFiles(Array.from(e.target.files || []))} />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm block mb-1">Mensagem</label>
+              <textarea className="textarea" rows={5} value={message} onChange={e => setMessage(e.target.value)} required />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button type="button" className="btn-ghost" onClick={onClose}>Cancelar</button>
+              <button type="submit" className="btn-primary" disabled={busy}>
+                {busy ? 'Enviando...' : 'Enviar'}
+              </button>
+            </div>
+          </form>
+          <div className="text-xs text-elegant/70 mt-2">
+            Arquivos permitidos: PDF, DOC, DOCX, TXT, JPG, JPEG, PNG, GIF (até 10MB cada)
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 
 export default function App() {
   const { mode, setMode, custom, setCustom, range } = useDateRange('7d')
@@ -1701,7 +1806,12 @@ export default function App() {
           </main>
         )}
       </div>
+
+      {/* ✅ Modal de feedback */}
+      <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+
     </div>
   )
 }
+
 
