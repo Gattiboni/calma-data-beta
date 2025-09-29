@@ -1,3 +1,4 @@
+// Updated: 2025-09-27 18:35 - Complete PDF and authentication system
 // CALMA_MARKER_LOADING_V2
 import React, { useEffect, useMemo, useState } from 'react'
 import './App.css'
@@ -10,7 +11,9 @@ import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { toPng } from 'html-to-image'
 import ReactDOM from 'react-dom/client'
-import emailjs from '@emailjs/browser'
+// import emailjs from '@emailjs/browser'
+import { AuthProvider, useAuth } from './AuthContext'
+import Login from './Login'
 
 
 
@@ -132,7 +135,7 @@ function Icon({ name, className = 'w-4 h-4 text-elegant' }) {
   return null
 }
 
-function Topbar({ mode, setMode, range, setCustom, custom, onFeedbackClick }) {
+function Topbar({ mode, setMode, range, setCustom, custom, onFeedbackClick, user, onLogout }) {
   const [open, setOpen] = useState(false)
 
   // Meses completos até o mês passado
@@ -174,8 +177,22 @@ function Topbar({ mode, setMode, range, setCustom, custom, onFeedbackClick }) {
         <MonthlyReportButton month={selectedMonth} />
       </div>
 
-      {/* Direita: botão de feedback + seletor de período */}
+      {/* Direita: user menu + botão de feedback + seletor de período */}
       <div className="flex items-center gap-2">
+        {/* User menu */}
+        {user && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Olá, {user.name}</span>
+            <button
+              onClick={onLogout}
+              className="px-3 py-1 rounded-md text-sm text-gray-600 hover:bg-gray-100 transition-colors"
+              aria-label="Sair"
+            >
+              Sair
+            </button>
+          </div>
+        )}
+
         {/* ✅ Botão correto: chama prop passada pelo App */}
         <button
           onClick={onFeedbackClick}
@@ -1118,7 +1135,7 @@ function WelcomeCard() {
       className="card"
       style={{
         background: '#2A8C99',
-        color: '#fff',
+        color: '#2A8C99',
         borderColor: '#2A8C99',
         height: '100%',
         display: 'flex',
@@ -1127,7 +1144,7 @@ function WelcomeCard() {
     >
       <div
         className="card-header"
-        style={{ borderColor: 'rgba(255,255,255,0.35)', color: '#fff' }}
+        style={{ borderColor: 'rgba(255,255,255,0.35)', color: '#ffffff' }}
       >
         Bem-vindos ao C'alma Data
       </div>
@@ -1541,7 +1558,10 @@ async function captureMonthlyCharts(month) {
     document.body.appendChild(mount)
     const root = ReactDOM.createRoot(mount)
     const handleReady = (imgs) => {
-      setTimeout(() => { root.unmount(); mount.remove() }, 0)
+      setTimeout(() => { 
+        root.unmount() 
+        mount.remove() 
+      }, 0)
       resolve(imgs)
     }
     root.render(
@@ -1711,7 +1731,8 @@ function FeedbackModal({ open, onClose }) {
 
 
 
-export default function App() {
+function Dashboard() {
+  const { user, logout } = useAuth()
   const { mode, setMode, custom, setCustom, range } = useDateRange('7d')
   const { loading, data } = useDashboardData(range)
   const [route, setRoute] = useState('inicio') // 'inicio' | 'sobre' | 'config'
@@ -1732,6 +1753,8 @@ export default function App() {
         setCustom={setCustom}
         custom={custom}
         onFeedbackClick={() => setFeedbackOpen(true)}
+        user={user}
+        onLogout={logout}
       />
       <div className="divider-horizontal w-full" />
       <div className="flex-1 flex overflow-hidden">
@@ -1802,21 +1825,39 @@ export default function App() {
         )}
       </div>
 
-      {/* Modal de Feedback */}
+      {/* Feedback Modal */}
       <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
-      {/* Route-based rendering */}
-      {route === 'sobre' && (
-        <main className="flex-1 overflow-auto p-6">
-          <AboutPage onBack={() => setRoute('inicio')} />
-        </main>
-      )}
-      {route === 'config' && (
-        <main className="flex-1 overflow-auto p-6">
-          <SettingsComingSoon onBack={() => setRoute('inicio')} />
-        </main>
-      )}
     </div>
   )
+}
+
+export default function App(){
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  )
+}
+
+function AppContent() {
+  const { isAuthenticated, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="spinner mb-4"></div>
+          <p>Carregando...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <Login />
+  }
+
+  return <Dashboard />
 }
 
 

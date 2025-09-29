@@ -1,6 +1,7 @@
-# Updated: 2025-09-27 17:35 - Fixed Supabase feedback bugs
-from fastapi import FastAPI, Query, HTTPException, File, UploadFile, Form
+# Updated: 2025-09-27 18:30 - Fixed OpenAI model and added Emergent LLM support
+from fastapi import FastAPI, Query, HTTPException, File, UploadFile, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta, date
@@ -12,6 +13,11 @@ import unicodedata
 import re
 import uuid
 import base64
+
+
+# JWT and password hashing
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 
 
 
@@ -42,6 +48,21 @@ ADS_OAUTH_REFRESH_TOKEN = os.environ.get("ADS_OAUTH_REFRESH_TOKEN")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
+
+# JWT Configuration
+JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "your-super-secret-jwt-key-change-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
+
+# Security
+security = HTTPBearer()
+
+# Allowed email domains
+ALLOWED_DOMAINS = ["@ilhafaceira.com.br", "@amandagattiboni.com"]
+ALLOWED_EMAILS = ["alangattiboni@gmail.com"]
 
 # ----- OpenAI (opcional) -----
 try:
@@ -989,33 +1010,50 @@ def networks_month(start: str, end: str) -> Dict[str, Any]:
 
 def build_gpt_prompt_pt(month: str, prev_month: str, data: Dict[str, Any]) -> str:
     return f"""
-Você é um analista de dados sênior e vai gerar um relatório mensal (PT-BR) com insights claros e acionáveis.
-Sempre responda em JSON com as chaves: resumo, uh, acquisition, pmc, networks, final.
+Você é um analista de dados sênior especializado em hotelaria e pousadas. Gere um relatório mensal completo (PT-BR) com insights acionáveis.
+
+IMPORTANTE: Responda OBRIGATORIAMENTE em JSON com TODAS as 6 chaves abaixo. Cada seção deve ter pelo menos 2-3 frases de análise:
+
+{{
+  "resumo": "Análise geral do mês comparando com período anterior",
+  "uh": "Insights sobre performance das categorias de unidades habitacionais",
+  "acquisition": "Análise dos canais de aquisição de tráfego",
+  "pmc": "Insights sobre o preço médio por compra e ticket médio",
+  "networks": "Análise das redes Google Ads e performance por canal",
+  "final": "Conclusões e recomendações estratégicas"
+}}
 
 Contexto:
 - Mês analisado: {month}
 - Mês anterior: {prev_month}
 
-Tabela-resumo (mês atual vs anterior) e métricas de comparação:
+DADOS PARA ANÁLISE:
+
+Resumo Comparativo (atual vs anterior):
 {json.dumps(data.get("summary"), ensure_ascii=False, indent=2)}
 
 Receita por UH (totais no mês):
 {json.dumps(data.get("uh"), ensure_ascii=False, indent=2)}
 
-Aquisição por canal (totais de usuários no mês):
+Aquisição por canal (usuários no mês):
 {json.dumps(data.get("acq"), ensure_ascii=False, indent=2)}
 
-Preço Médio por Compra por dia (itemRevenue/itemsPurchased):
-{json.dumps((data.get("pmc") or [])[:7], ensure_ascii=False, indent=2)} ... (demais dias)
+Preço Médio por Compra (primeiros 7 dias):
+{json.dumps((data.get("pmc") or [])[:7], ensure_ascii=False, indent=2)}
 
-Redes Google Ads (shares por Conversions, Cost, Conv. value):
+Redes Google Ads (distribuição por conversões):
 {json.dumps(data.get("networks", {}).get("shares", {}), ensure_ascii=False, indent=2)}
 
-Instruções:
-- Compare {month} com {prev_month} em todos os pontos possíveis
-- Destaque tendências, anomalias e oportunidades
-- Para Redes: considere que menor participação de Display em conversões tende a reduzir dependência de OTAs e comissionamento
-- No texto, NÃO inclua código; retorne APENAS JSON válido com as chaves pedidas
+INSTRUÇÕES OBRIGATÓRIAS:
+1. Compare SEMPRE {month} vs {prev_month}
+2. Identifique tendências positivas/negativas
+3. Para UH: analise qual categoria teve melhor performance
+4. Para Acquisition: identifique canais com maior crescimento
+5. Para PMC: analise se o ticket médio está subindo/descendo
+6. Para Networks: menor Display = menos dependência de OTAs
+7. Final: dê 2-3 recomendações práticas
+
+Retorne APENAS o JSON válido, SEM código markdown nem explicações extras.
 """
 
 def run_gpt_sections_safe(prompt: str) -> tuple[dict, dict]:
@@ -1034,24 +1072,87 @@ def run_gpt_sections_safe(prompt: str) -> tuple[dict, dict]:
             "final": "—"
         }
 
+    # Try Emergent LLM key first
+    emergent_key = os.environ.get("EMERGENT_LLM_KEY")
+    if emergent_key:
+        try:
+            import litellm
+            
+            # Use litellm with emergent proxy
+            response = litellm.completion(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "Você é um analista de dados brasileiro especializado em hotelaria. Responda APENAS em JSON válido com todas as 6 chaves: resumo, uh, acquisition, pmc, networks, final."},
+                    {"role": "user", "content": prompt}
+                ],
+                api_key=emergent_key,
+                api_base="https://integrations.emergentagent.com/llm",
+                custom_llm_provider="openai",
+                temperature=0.2,
+                max_tokens=3000  # Increased for complete JSON
+            )
+            
+            content = response.choices[0].message.content.strip()
+            
+            # Remove markdown code blocks if present
+            if content.startswith('```json'):
+                content = content.replace('```json', '').replace('```', '').strip()
+            elif content.startswith('```'):
+                content = content.replace('```', '').strip()
+            
+            try:
+                sections = json.loads(content)
+                # Ensure all required keys exist  
+                required_keys = ["resumo", "uh", "acquisition", "pmc", "networks", "final"]
+                for key in required_keys:
+                    if key not in sections:
+                        sections[key] = "—"
+            except Exception as e:
+                print(f"[GPT] JSON parse failed: {e}")
+                sections = {
+                    "resumo": content,
+                    "uh": "—",
+                    "acquisition": "—",
+                    "pmc": "—",
+                    "networks": "—",
+                    "final": "—"
+                }
+            return sections, {"ok": True, "reason": "ok"}
+        except Exception as e:
+            print(f"[GPT] Emergent key failed: {e}")
+            # Continue to regular OpenAI
+
     if not openai_client:
         return fallback_sections(), {"ok": False, "reason": "no_api_key"}
 
     try:
-        model = os.environ.get("OPENAI_MODEL", "gpt-5")
+        model = os.environ.get("OPENAI_MODEL", "gpt-4o")  # Changed from gpt-5 to gpt-4o
         resp = openai_client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "Você é um analista de dados brasileiro. Responda somente em JSON válido."},
+                {"role": "system", "content": "Você é um analista de dados brasileiro especializado em hotelaria. Responda APENAS em JSON válido com todas as 6 chaves: resumo, uh, acquisition, pmc, networks, final."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3,
-            max_tokens=1600
+            temperature=0.2,
+            max_tokens=3000  # Increased for complete JSON
         )
         content = (resp.choices[0].message.content or "").strip()
+        
+        # Remove markdown code blocks if present
+        if content.startswith('```json'):
+            content = content.replace('```json', '').replace('```', '').strip()
+        elif content.startswith('```'):
+            content = content.replace('```', '').strip()
+        
         try:
             sections = json.loads(content)
-        except Exception:
+            # Ensure all required keys exist  
+            required_keys = ["resumo", "uh", "acquisition", "pmc", "networks", "final"]
+            for key in required_keys:
+                if key not in sections:
+                    sections[key] = "—"
+        except Exception as e:
+            print(f"[GPT] JSON parse failed: {e}")
             sections = {
                 "resumo": content,
                 "uh": "—",
@@ -1507,40 +1608,7 @@ async def monthly_report(req: MonthlyReportRequest):
         "gpt": gpt_meta
     }
 
-@app.post("/api/feedback")
-async def post_feedback(
-    name: str = Form(...),
-    email: str = Form(...),
-    message: str = Form(...),
-    component: str = Form("Geral"),
-    files: list[UploadFile] = File(None)
-):
-    # Monta attachments
-    atts = []
-    if files:
-        for f in files:
-            a = await read_file_b64(f)
-            if a: atts.append(a)
 
-    subject = f"[Calma Data] Feedback – {component}"
-    text = f"Nome: {name}\nEmail: {email}\nComponente: {component}\n\nMensagem:\n{message}"
-    html = f"""
-    <h3>Feedback recebido</h3>
-    <p><strong>Nome:</strong> {name}<br/>
-    <strong>Email:</strong> {email}<br/>
-    <strong>Componente:</strong> {component}</p>
-    <p style="white-space:pre-wrap">{message}</p>
-    """
-
-    r = await send_feedback_via_resend(subject, text, html, atts)
-    if r.get("sent"):
-        return {"ok": True, "via": "resend", "id": r.get("id")}
-    # Se não enviado, retorna erro sem fallback MongoDB
-    return {"ok": False, "via": "resend", "reason": r.get("reason")}
-
-# -------------------- FEEDBACK MODELS --------------------
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
 
 class FeedbackResponse(BaseModel):
     success: bool
@@ -1553,9 +1621,6 @@ from typing import List, Optional
 from pydantic import BaseModel
 import base64
 
-class FeedbackResponse(BaseModel):
-    success: bool
-    message: str
 
 
 @app.post("/api/feedback", response_model=FeedbackResponse)
@@ -1622,4 +1687,226 @@ async def submit_feedback(
         import traceback
         traceback.print_exc()
         return FeedbackResponse(success=False, message="Erro interno do servidor")
+
+
+# -------------------- AUTHENTICATION FUNCTIONS --------------------
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against its hash"""
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
+        # Fallback for SHA256 hashes
+        import hashlib
+        return hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password
+
+
+def get_password_hash(password: str) -> str:
+    """Hash a password"""
+    try:
+        # Simple approach for bcrypt
+        return pwd_context.hash(str(password))
+    except Exception as e:
+        print(f"[AUTH] Hash error: {e}")
+        # Fallback to simple hash if bcrypt fails
+        import hashlib
+        return hashlib.sha256(password.encode()).hexdigest()
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Create JWT access token"""
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    return encoded_jwt
+
+
+def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    """Verify JWT token and return user data"""
+    try:
+        payload = jwt.decode(credentials.credentials, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return {"email": email}
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
+def validate_email_domain(email: str) -> bool:
+    """Validate if email domain is allowed"""
+    email = email.lower()
+    if email in [e.lower() for e in ALLOWED_EMAILS]:
+        return True
+    return any(email.endswith(domain.lower()) for domain in ALLOWED_DOMAINS)
+
+
+async def get_user_by_email(email: str) -> Optional[dict]:
+    """Get user from Supabase by email"""
+    supabase = build_supabase_client()
+    if not supabase:
+        return None
+    
+    try:
+        result = supabase.from_("users").select("*").eq("email", email).execute()
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"[AUTH] Error getting user: {e}")
+        return None
+
+
+async def create_user(name: str, email: str, password: str) -> dict:
+    """Create new user in Supabase"""
+    supabase = build_supabase_client()
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+    
+    try:
+        user_data = {
+            "name": name,
+            "email": email.lower(),
+            "password_hash": get_password_hash(password)
+        }
+        
+        result = supabase.from_("users").insert(user_data).execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create user")
+            
+    except Exception as e:
+        print(f"[AUTH] Error creating user: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create user")
+
+
+# -------------------- AUTHENTICATION MODELS --------------------
+
+class UserRegister(BaseModel):
+    name: str
+    email: str
+    password: str
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user: dict
+
+
+# -------------------- AUTHENTICATION ENDPOINTS --------------------
+
+@app.post("/api/auth/register", response_model=AuthResponse)
+async def register(user_data: UserRegister):
+    """Register new user"""
+    
+    # Validate email domain
+    if not validate_email_domain(user_data.email):
+        raise HTTPException(
+            status_code=400, 
+            detail="Email domain not allowed. Use @ilhafaceira.com.br, @amandagattiboni.com or alangattiboni@gmail.com"
+        )
+    
+    # Check if user already exists
+    existing_user = await get_user_by_email(user_data.email)
+    if existing_user:
+        raise HTTPException(status_code=400, detail="User already exists")
+    
+    # Create user
+    user = await create_user(user_data.name, user_data.email, user_data.password)
+    
+    # Create access token
+    access_token_expires = timedelta(minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user["email"]}, expires_delta=access_token_expires
+    )
+    
+    return AuthResponse(
+        access_token=access_token,
+        token_type="bearer",
+        user={"email": user["email"], "name": user["name"], "created_at": user.get("created_at")}
+    )
+
+
+@app.post("/api/auth/login", response_model=AuthResponse)
+async def login(user_data: UserLogin):
+    """Login user"""
+    
+    # Get user
+    user = await get_user_by_email(user_data.email)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    # Verify password
+    if not verify_password(user_data.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    # Create access token
+    access_token_expires = timedelta(minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user["email"]}, expires_delta=access_token_expires
+    )
+    
+    return AuthResponse(
+        access_token=access_token,
+        token_type="bearer",
+        user={"email": user["email"], "name": user["name"], "created_at": user.get("created_at")}
+    )
+
+
+@app.get("/api/auth/me")
+async def get_current_user(current_user: dict = Depends(verify_token)):
+    """Get current user info"""
+    user = await get_user_by_email(current_user["email"])
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {"email": user["email"], "name": user["name"]}
+
+
+# -------------------- SETUP USERS TABLE (TEMPORARY) --------------------
+@app.post("/api/setup-users-table")
+async def setup_users_table():
+    """Temporary endpoint to create users table"""
+    try:
+        supabase = build_supabase_client()
+        if not supabase:
+            return {"success": False, "message": "Supabase connection failed"}
+        
+        # Check if table exists by trying to query it
+        try:
+            supabase.table("users").select("id").limit(1).execute()
+            return {"success": True, "message": "Users table already exists"}
+        except Exception:
+            return {
+                "success": False, 
+                "message": "Users table doesn't exist. Please create it manually with this SQL:",
+                "sql": """
+CREATE TABLE users (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name text NOT NULL,
+    email text UNIQUE NOT NULL,
+    password_hash text NOT NULL,
+    created_at timestamp with time zone DEFAULT now()
+);
+                """
+            }
+            
+    except Exception as e:
+        print(f"[SETUP] Error: {e}")
+        return {"success": False, "message": f"Error: {str(e)}"}
+
+
+# -------------------- HEALTH --------------------
 
