@@ -1,3 +1,4 @@
+# Updated: 2025-09-27 17:35 - Fixed Supabase feedback bugs
 from fastapi import FastAPI, Query, HTTPException, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -1563,34 +1564,34 @@ async def submit_feedback(
     email: str = Form(...),
     message: str = Form(...),
     component: str = Form(...),
-    files: Optional[List[UploadFile]] = File(None)
+    files: List[UploadFile] = File([])  # Fixed: Corrected file parameter
 ):
-    print("\n[FEEDBACK] Nova requisição recebida!")
+    print(f"\n[FEEDBACK] Nova requisição: name={name}, email={email}, component={component}")
 
     try:
-        # Importa Supabase
-        from supabase import create_client
-        SUPABASE_URL = os.getenv("SUPABASE_URL")
-        SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+        # Use the global Supabase client
+        supabase = build_supabase_client()
+        if not supabase:
+            print("[FEEDBACK] ❌ Falha ao conectar com Supabase")
+            return FeedbackResponse(success=False, message="Erro de conexão com banco de dados")
 
-        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-            print("[FEEDBACK] ❌ Credenciais ausentes.")
-            raise HTTPException(status_code=500, detail="Credenciais Supabase ausentes")
-
-        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        print("[FEEDBACK] ✅ Cliente Supabase inicializado")
 
         # Processa arquivos
         file_data = []
-        if files:
-            for file in files:
+        if files and any(f.filename for f in files):  # Fixed: Better file check
+            print(f"[FEEDBACK] Processando {len([f for f in files if f.filename])} arquivos")
+            for i, file in enumerate(files):
                 if file.filename:
                     content = await file.read()
-                    file_data.append({
+                    file_info = {
                         "filename": file.filename,
                         "content_type": file.content_type,
                         "size": len(content),
                         "data": base64.b64encode(content).decode("utf-8")
-                    })
+                    }
+                    file_data.append(file_info)
+                    print(f"[FEEDBACK] Arquivo {i+1}: {file.filename} ({len(content)} bytes)")
 
         feedback_data = {
             "name": name,
@@ -1600,18 +1601,25 @@ async def submit_feedback(
             "files": file_data if file_data else None
         }
 
-        print("[FEEDBACK] Inserindo no Supabase:", feedback_data)
+        print(f"[FEEDBACK] Dados para inserir: {list(feedback_data.keys())}")
 
         # Insere no Supabase
         result = supabase.table("feedbacks").insert(feedback_data).execute()
-        print("[FEEDBACK] Resultado:", result)
+        print(f"[FEEDBACK] Resultado Supabase: success={bool(result.data)}, count={len(result.data) if result.data else 0}")
+        
+        if hasattr(result, 'error') and result.error:
+            print(f"[FEEDBACK] ❌ Erro Supabase: {result.error}")
 
-        if result.data:
+        if result.data and len(result.data) > 0:
+            print("[FEEDBACK] ✅ Sucesso - Feedback salvo!")
             return FeedbackResponse(success=True, message="Feedback salvo com sucesso!")
         else:
+            print("[FEEDBACK] ❌ Falha - Nenhum dado retornado")
             return FeedbackResponse(success=False, message="Falha ao salvar feedback.")
 
     except Exception as e:
-        print("[FEEDBACK] ❌ Erro ao inserir:", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[FEEDBACK] ❌ Exceção: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return FeedbackResponse(success=False, message="Erro interno do servidor")
 
