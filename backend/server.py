@@ -1912,4 +1912,9 @@ CREATE TABLE users (
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok"}
+    integrations = {
+        "ga4": bool(os.getenv("GA4_PROPERTY_ID") and os.getenv("GA4_PRIVATE_KEY")),
+        "google_ads": bool(os.getenv("ADS_DEVELOPER_TOKEN") and os.getenv("ADS_OAUTH_CLIENT_ID"))
+    }
+    return {"status": "ok", "integrations": integrations}
+
