@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional, Tuple
@@ -9,9 +9,9 @@ from pathlib import Path
 import json
 import unicodedata
 import re
-from fastapi import UploadFile, File, Form
+import uuid
 import base64
-import binascii
+
 
 
 # Load local .env (for local/dev runs). In container/production, real envs override.
@@ -37,6 +37,11 @@ ADS_OAUTH_CLIENT_ID = os.environ.get("ADS_OAUTH_CLIENT_ID")
 ADS_OAUTH_CLIENT_SECRET = os.environ.get("ADS_OAUTH_CLIENT_SECRET")
 ADS_OAUTH_REFRESH_TOKEN = os.environ.get("ADS_OAUTH_REFRESH_TOKEN")
 
+# Supabase Configuration
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
+
 # ----- OpenAI (opcional) -----
 try:
     from openai import OpenAI
@@ -50,22 +55,35 @@ try:
 except Exception as e:
     print("[OPENAI] init failed:", e)
 
-# ----- Mongo (opcional) -----
-mongo_client = None
-mongo_db = None
-try:
-    from pymongo import MongoClient
-    MONGO_URL = os.environ.get("MONGO_URL")
-    if MONGO_URL:
-        mongo_client = MongoClient(MONGO_URL, uuidRepresentation="standard")
-        mongo_db = mongo_client.get_database()
-except Exception as e:
-    print("[MONGO] init failed:", e)
+
 
 # -------------------- CLIENT INIT --------------------
 
 ga4_client = None
 ads_client = None
+
+# -------------------- SUPABASE CLIENT INIT --------------------
+
+supabase_client = None
+
+def build_supabase_client():
+    """Initialize Supabase client"""
+    global supabase_client
+    if supabase_client:
+        return supabase_client
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        print("[SUPABASE] Missing credentials")
+        return None
+
+    try:
+        from supabase import create_client
+        supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        print("[SUPABASE] Client initialized")
+        return supabase_client
+    except Exception as e:
+        print(f"[SUPABASE] Client init failed: {e}")
+        return None
 
 
 def build_ga4_client():
@@ -851,7 +869,7 @@ async def send_feedback_via_resend(subject: str, text: str, html: str, attachmen
     if not api_key: 
         return {"sent": False, "reason": "no_api_key"}
     try:
-        import resend
+        import resend  # Ensure the resend module is imported
         resend.api_key = api_key
         params = {
             "from": get_env("FEEDBACK_FROM", "Calma Data <noreply@example.com>"),
@@ -868,15 +886,6 @@ async def send_feedback_via_resend(subject: str, text: str, html: str, attachmen
         print("[RESEND] error:", e)
         return {"sent": False, "reason": "error"}
 
-async def store_feedback_fallback(doc: dict):
-    if not mongo_db:
-        return {"stored": False, "reason": "no_mongo"}
-    try:
-        res = await mongo_db["feedbacks"].insert_one(doc)
-        return {"stored": True, "id": str(res.inserted_id)}
-    except Exception as e:
-        print("[MONGO] feedback error:", e)
-        return {"stored": False, "reason": "mongo_error"}
 
 
 # -------------------- MONTHLY REPORT HELPERS (OpenAI + Mongo quota) --------------------
@@ -888,34 +897,6 @@ def prev_month_str(month_str: str) -> str:
     y, m = [int(x) for x in month_str.split("-")]
     return f"{y-1}-12" if m == 1 else f"{y}-{str(m-1).zfill(2)}"
 
-def current_month_str() -> str:
-    today = date.today()
-    return f"{today.year}-{str(today.month).zfill(2)}"
-
-def quota_get_used(period: str) -> int:
-    if not mongo_db:
-        return 0
-    coll = mongo_db["monthly_report_usage"]
-    doc = coll.find_one({"period": period}, {"_id": 0})
-    return int(doc.get("count", 0)) if doc else 0
-
-def quota_increment(period: str) -> int:
-    if not mongo_db:
-        return 0
-    coll = mongo_db["monthly_report_usage"]
-    res = coll.find_one_and_update(
-        {"period": period},
-        {"$inc": {"count": 1}, "$setOnInsert": {"period": period}},
-        upsert=True,
-        return_document=True
-    )
-    return int(res.get("count", 0)) if res else quota_get_used(period)
-
-def quota_require(period: str, limit: int = 4):
-    used = quota_get_used(period)
-    if used >= limit:
-        raise HTTPException(status_code=429, detail="Limite mensal de 4 relatórios atingido.")
-    return used
 
 def kpis_month(start: str, end: str) -> Dict[str, Any]:
     """Receita (GA4), Reservas (GA4), Diárias (itemsPurchased), Clicks/Impressões/CPC (Ads)."""
@@ -1435,6 +1416,11 @@ async def ads_networks(
 
 # -------------------- MONTHLY REPORT ENDPOINT --------------------
 
+def current_month_str() -> str:
+    """Retorna o mês atual no formato YYYY-MM."""
+    today = datetime.utcnow().date()
+    return f"{today.year}-{str(today.month).zfill(2)}"
+
 @app.post("/api/monthly-report")
 async def monthly_report(req: MonthlyReportRequest):
     # Validar mês
@@ -1448,7 +1434,9 @@ async def monthly_report(req: MonthlyReportRequest):
         raise HTTPException(status_code=422, detail="O mês vigente só fica disponível no 1º dia do mês seguinte.")
     # Limite (contabilizamos por mês de EXECUÇÃO)
     exec_period = current_month_str()
-    _ = quota_require(exec_period, limit=4)
+    # _ = quota_require(exec_period, limit=4)
+    # exec_period = current_month_str()
+    # Quota removida: não há mais controle de limite mensal
 
     # Intervalos
     start, end = month_bounds(req.month)
@@ -1498,10 +1486,8 @@ async def monthly_report(req: MonthlyReportRequest):
     sections, gpt_meta = run_gpt_sections_safe(prompt)
 
     # Se GPT ok: incrementa; se falhou, NÃO incrementa
-    if gpt_meta.get("ok"):
-        new_used = quota_increment(exec_period)
-    else:
-        new_used = quota_get_used(exec_period)  # mantém uso atual
+    # Quota controle removido: define new_used como 0
+    new_used = 0
     remaining = max(0, 4 - new_used)
 
     return {
@@ -1509,7 +1495,14 @@ async def monthly_report(req: MonthlyReportRequest):
         "prev_month": prev_m,
         "summary": summary,
         "sections": sections,
-        "quota": {"allowed": 4, "used": new_used, "remaining": remaining},
+        "gpt": gpt_meta
+    }
+    # Controle de quota removido
+    return {
+        "month": req.month,
+        "prev_month": prev_m,
+        "summary": summary,
+        "sections": sections,
         "gpt": gpt_meta
     }
 
@@ -1538,57 +1531,87 @@ async def post_feedback(
     <p style="white-space:pre-wrap">{message}</p>
     """
 
-    # Primeiro tenta Resend
     r = await send_feedback_via_resend(subject, text, html, atts)
     if r.get("sent"):
         return {"ok": True, "via": "resend", "id": r.get("id")}
+    # Se não enviado, retorna erro sem fallback MongoDB
+    return {"ok": False, "via": "resend", "reason": r.get("reason")}
 
-    # Fallback Mongo (sempre retorna 200 para não travar UX)
-    doc = {
-        "name": name, "email": email, "component": component, "message": message,
-        "attachments": [{"filename": a["filename"], "content_type": a["content_type"], "size": len(a["content"])} for a in atts],
-        "created_at": datetime.utcnow().isoformat(), "via": "fallback", "reason": r.get("reason")
-    }
-    s = await store_feedback_fallback(doc)
-    if s.get("stored"):
-        return {"ok": True, "via": "fallback", "id": s.get("id"), "note": "Sem chave RESEND ou indisponível"}
-    raise HTTPException(status_code=500, detail="Não foi possível registrar seu feedback agora.")
+# -------------------- FEEDBACK MODELS --------------------
+from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
+
+class FeedbackResponse(BaseModel):
+    success: bool
+    message: str
 
 
-# -------------------- HEALTH --------------------
-@app.get("/api/health")
-async def health():
-    ga4_ok = False
-    ads_ok = False
-    # GA4 quick check with itemRevenue over last 7 days
+# -------------------- FEEDBACK ENDPOINT --------------------
+from fastapi import Form, File, UploadFile, HTTPException
+from typing import List, Optional
+from pydantic import BaseModel
+import base64
+
+class FeedbackResponse(BaseModel):
+    success: bool
+    message: str
+
+
+@app.post("/api/feedback", response_model=FeedbackResponse)
+async def submit_feedback(
+    name: str = Form(...),
+    email: str = Form(...),
+    message: str = Form(...),
+    component: str = Form(...),
+    files: Optional[List[UploadFile]] = File(None)
+):
+    print("\n[FEEDBACK] Nova requisição recebida!")
+
     try:
-        if GA4_PROPERTY_ID:
-            client = ga4_client or build_ga4_client()
-            if client:
-                from google.analytics.data_v1beta.types import DateRange, Metric, RunReportRequest
-                end = datetime.utcnow().strftime("%Y-%m-%d")
-                start = (datetime.utcnow() - timedelta(days=6)).strftime("%Y-%m-%d")
-                req = RunReportRequest(
-                    property=f"properties/{GA4_PROPERTY_ID}",
-                    metrics=[Metric(name="itemRevenue")],
-                    date_ranges=[DateRange(start_date=start, end_date=end)],
-                )
-                _ = client.run_report(req)
-                ga4_ok = True
-    except Exception as e:
-        print(f"[GA4] health failed: {e}")
-        ga4_ok = False
+        # Importa Supabase
+        from supabase import create_client
+        SUPABASE_URL = os.getenv("SUPABASE_URL")
+        SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 
-    # Ads quick check
-    try:
-        client = ads_client or build_ads_client()
-        if client and ADS_CUSTOMER_ID:
-            service = client.get_service("GoogleAdsService")
-            customer_id = ADS_CUSTOMER_ID.replace("-", "")
-            _ = service.search(customer_id=customer_id, query="SELECT campaign.id FROM campaign LIMIT 1")
-            ads_ok = True
-    except Exception as e:
-        print(f"[ADS] health failed: {e}")
-        ads_ok = False
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+            print("[FEEDBACK] ❌ Credenciais ausentes.")
+            raise HTTPException(status_code=500, detail="Credenciais Supabase ausentes")
 
-    return {"status": "ok", "time": datetime.utcnow().isoformat(), "integrations": {"ga4": ga4_ok, "google_ads": ads_ok}}
+        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+        # Processa arquivos
+        file_data = []
+        if files:
+            for file in files:
+                if file.filename:
+                    content = await file.read()
+                    file_data.append({
+                        "filename": file.filename,
+                        "content_type": file.content_type,
+                        "size": len(content),
+                        "data": base64.b64encode(content).decode("utf-8")
+                    })
+
+        feedback_data = {
+            "name": name,
+            "email": email,
+            "message": message,
+            "component": component,
+            "files": file_data if file_data else None
+        }
+
+        print("[FEEDBACK] Inserindo no Supabase:", feedback_data)
+
+        # Insere no Supabase
+        result = supabase.table("feedbacks").insert(feedback_data).execute()
+        print("[FEEDBACK] Resultado:", result)
+
+        if result.data:
+            return FeedbackResponse(success=True, message="Feedback salvo com sucesso!")
+        else:
+            return FeedbackResponse(success=False, message="Falha ao salvar feedback.")
+
+    except Exception as e:
+        print("[FEEDBACK] ❌ Erro ao inserir:", e)
+        raise HTTPException(status_code=500, detail=str(e))
+

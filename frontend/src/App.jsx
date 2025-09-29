@@ -10,6 +10,8 @@ import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { toPng } from 'html-to-image'
 import ReactDOM from 'react-dom/client'
+import emailjs from '@emailjs/browser'
+
 
 
 
@@ -130,8 +132,9 @@ function Icon({ name, className = 'w-4 h-4 text-elegant' }) {
   return null
 }
 
-function Topbar({ mode, setMode, range, setCustom, custom, setFeedbackOpen }) {
+function Topbar({ mode, setMode, range, setCustom, custom, onFeedbackClick }) {
   const [open, setOpen] = useState(false)
+
   // Meses completos até o mês passado
   const months = useMemo(() => {
     const now = new Date()
@@ -145,16 +148,18 @@ function Topbar({ mode, setMode, range, setCustom, custom, setFeedbackOpen }) {
     }
     return arr.reverse()
   }, [])
+
   const [selectedMonth, setSelectedMonth] = useState(months[0]?.value || '')
 
   return (
     <div className="w-full flex items-center justify-between px-6 py-3 bg-surface">
+      {/* Esquerda: logo e título */}
       <div className="flex items-center gap-3">
         <img src="/logo-calma-data.png" alt="Calma Data" className="h-8" />
         <div className="topbar-title">C'alma Data, o dashboard da Ilha Faceira</div>
       </div>
 
-      {/* Centro: Botão Resumo Mensal */}
+      {/* Centro: seletor de mês e botão Resumo Mensal */}
       <div className="flex items-center gap-2">
         <select
           value={selectedMonth}
@@ -162,13 +167,26 @@ function Topbar({ mode, setMode, range, setCustom, custom, setFeedbackOpen }) {
           className="border rounded px-2 py-1 text-sm"
           title="Selecione um mês completo (o mês vigente não aparece)"
         >
-          {months.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+          {months.map(m => (
+            <option key={m.value} value={m.value}>{m.label}</option>
+          ))}
         </select>
         <MonthlyReportButton month={selectedMonth} />
       </div>
 
-      {/* Direita: seletor de período do dashboard + botão de feedback */}
+      {/* Direita: botão de feedback + seletor de período */}
       <div className="flex items-center gap-2">
+        {/* ✅ Botão correto: chama prop passada pelo App */}
+        <button
+          onClick={onFeedbackClick}
+          className="px-4 py-2 rounded-md text-white text-sm font-medium hover:opacity-80 transition-opacity"
+          style={{ backgroundColor: '#2A8C99' }}
+          aria-label="Fale com o desenvolvedor"
+        >
+          Fale com o Dev
+        </button>
+
+        {/* Botões de intervalo */}
         {['7d', '30d', '90d', 'custom'].map(key => (
           <button
             key={key}
@@ -180,6 +198,7 @@ function Topbar({ mode, setMode, range, setCustom, custom, setFeedbackOpen }) {
           </button>
         ))}
 
+        {/* Se modo = custom, exibe inputs */}
         {mode === 'custom' && (
           <div className="flex items-center gap-2">
             <input
@@ -196,20 +215,11 @@ function Topbar({ mode, setMode, range, setCustom, custom, setFeedbackOpen }) {
             />
           </div>
         )}
-
-        {/* ✅ Botão “Fale com o Dev” */}
-        <button
-          className="chip"
-          style={{ background: '#2A8C99', color: '#fff', borderColor: '#6D6A69' }}
-          title="Fale com o Dev"
-          onClick={() => setFeedbackOpen(true)}
-        >
-          Fale com o Dev
-        </button>
       </div>
     </div>
   )
 }
+
 
 function Sidebar({ active = 'inicio', onNavigate }) {
   const items = [
@@ -240,6 +250,9 @@ function Sidebar({ active = 'inicio', onNavigate }) {
     </aside>
   )
 }
+
+// Removed duplicate FeedbackModal definition to fix syntax error
+
 
 
 const KPIGREEN = '#A8C6A6'
@@ -1704,10 +1717,9 @@ export default function App() {
   const [route, setRoute] = useState('inicio') // 'inicio' | 'sobre' | 'config'
   const [feedbackOpen, setFeedbackOpen] = useState(false)
 
-
-
   const spanDays = useMemo(() => {
-    const s = new Date(range.start); const e = new Date(range.end)
+    const s = new Date(range.start)
+    const e = new Date(range.end)
     return Math.round((e - s) / (1000 * 60 * 60 * 24)) + 1
   }, [range.start, range.end])
 
@@ -1719,7 +1731,7 @@ export default function App() {
         range={range}
         setCustom={setCustom}
         custom={custom}
-        setFeedbackOpen={setFeedbackOpen}
+        onFeedbackClick={() => setFeedbackOpen(true)}
       />
       <div className="divider-horizontal w-full" />
       <div className="flex-1 flex overflow-hidden">
@@ -1727,11 +1739,6 @@ export default function App() {
         <div className="divider-vertical" />
         {route === 'inicio' && (
           <main className="flex-1 overflow-auto p-6 space-y-6">
-
-            {/* === COLE AQUI o conteúdo que estava dentro do seu main === */}
-            {/* Ou seja, todo o conteúdo original do dashboard que você mostrou acima:
-        KPIs, gráficos, tabelas, etc. */}
-            {/* Nada precisa ser alterado dentro dessas seções */}
 
             {/* KPIs */}
             <section className="kpi-grid">
@@ -1793,23 +1800,21 @@ export default function App() {
             </section>
           </main>
         )}
-
-        {route === 'sobre' && (
-          <main className="flex-1 overflow-auto p-6">
-            <AboutPage onBack={() => setRoute('inicio')} />
-          </main>
-        )}
-
-        {route === 'config' && (
-          <main className="flex-1 overflow-auto p-6">
-            <SettingsComingSoon onBack={() => setRoute('inicio')} />
-          </main>
-        )}
       </div>
 
-      {/* ✅ Modal de feedback */}
+      {/* Modal de Feedback */}
       <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
-
+      {/* Route-based rendering */}
+      {route === 'sobre' && (
+        <main className="flex-1 overflow-auto p-6">
+          <AboutPage onBack={() => setRoute('inicio')} />
+        </main>
+      )}
+      {route === 'config' && (
+        <main className="flex-1 overflow-auto p-6">
+          <SettingsComingSoon onBack={() => setRoute('inicio')} />
+        </main>
+      )}
     </div>
   )
 }

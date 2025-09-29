@@ -299,3 +299,100 @@ body {
 
 /* PDF viewer */ .pdf-frame { width: 100%; height: 100%; border: 0; border-radius: 10px; }
 
+/* === Modal Overlay (popup centralizado) === */
+.modal-backdrop {
+  position: fixed;            /* cobre a tela toda */
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.5); /* fundo escurecido translúcido */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+/* === Caixa do modal === */
+.modal-card {
+  background: #FFFFFF;
+  border-radius: 12px;
+  border: 1px solid #6D6A69;
+  padding: 24px;
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+  font-family: Inter, system-ui, sans-serif;
+  color: #6D6A69;
+}
+
+/* Cabeçalho */
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.modal-header h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #2A8C99;
+}
+
+/* Inputs */
+.modal-card input,
+.modal-card select,
+.modal-card textarea {
+  width: 100%;
+  padding: 10px 12px;
+  margin-top: 4px;
+  margin-bottom: 12px;
+  border: 1px solid #6D6A69;
+  border-radius: 8px;
+  font-size: 14px;
+  background: #FFF;
+}
+
+/* Textarea */
+.modal-card textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+
+/* Ações (botões) */
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.btn-primary {
+  background: #2A8C99;
+  color: #FFF;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  opacity: 0.9;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: #6D6A69;
+  border: 1px solid #6D6A69;
+  padding: 10px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.btn-ghost:hover {
+  background: #F5F5F5;
+}
+
+
