@@ -22,7 +22,7 @@ export default function Login() {
     setSuccess('')
 
     try {
-      const endpoint = isLogin ? 'auth/login' : 'auth/register'
+      const endpoint = isLogin ? 'api/auth/login' : 'api/auth/register'
       const body = isLogin
         ? { email: formData.email, password: formData.password }
         : { name: formData.name, email: formData.email, password: formData.password }
