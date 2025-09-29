@@ -27,12 +27,12 @@ export default function Login() {
         ? { email: formData.email, password: formData.password }
         : { name: formData.name, email: formData.email, password: formData.password }
 
-      const API_BASE = import.meta.env.REACT_APP_BACKEND_URL || process.env.REACT_APP_BACKEND_URL
+      // ✅ Correção aqui:
+      const API_BASE = import.meta.env.VITE_API_URL
+
       const response = await fetch(`${API_BASE}/${endpoint}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       })
 
@@ -43,6 +43,7 @@ export default function Login() {
       }
 
       setSuccess(isLogin ? 'Login realizado com sucesso!' : 'Cadastro realizado com sucesso!')
+
 
       // Use a função login do hook useAuth (chamada no nível do componente)
       login(data.user, data.access_token)
