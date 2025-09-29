@@ -298,11 +298,13 @@ body {
   font-size: 12px;
 }
 
-/* Wrapper responsivo para a tabela de campanhas */
 .table-campaigns-wrapper {
-  max-height: 70vh;     /* até 70% da altura da tela */
-  overflow-y: auto;     /* adiciona scroll se passar do limite */
+  max-height: 70vh;     /* scroll se passar disso */
+  overflow-y: auto;     /* cria rolagem vertical se precisar */
+  height: auto;         /* não força altura fixa */
+  display: block;       /* garante comportamento normal de bloco */
 }
+
 
 
 /* Container do PDF */
