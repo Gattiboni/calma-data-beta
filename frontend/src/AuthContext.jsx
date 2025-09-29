@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react'
 
 const AuthContext = createContext()
 
-const API_BASE = import.meta.env.REACT_APP_BACKEND_URL || process.env.REACT_APP_BACKEND_URL || ''
+const API_BASE = import.meta.env?.VITE_API_URL;
 
 function ensureApiBase(path) {
   if (!API_BASE) return path

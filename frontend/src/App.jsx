@@ -19,27 +19,31 @@ import Login from './Login'
 
 
 
-const API_BASE = (
-  import.meta.env?.VITE_BACKEND_URL ||
-  import.meta.env?.REACT_APP_BACKEND_URL ||
-  process.env.REACT_APP_BACKEND_URL
-)
+// Definição única e clara do endpoint base
+const API_BASE = import.meta.env?.VITE_API_URL;
 
 function ensureApiBase(path) {
-  const baseRaw = API_BASE || ''
-  if (!baseRaw) throw new Error('Backend URL ausente. Defina REACT_APP_BACKEND_URL no .env do frontend.')
-  const base = baseRaw.endsWith('/') ? baseRaw.slice(0, -1) : baseRaw
-  const p = path.startsWith('/') ? path : `/${path}`
-  const baseEndsWithApi = base.endsWith('/api') || base === '/api'
-  const pathHasApi = p.startsWith('/api')
-  let full = ''
-  if (baseEndsWithApi) {
-    full = base + p
-  } else {
-    full = pathHasApi ? (base + p) : (base + '/api' + p)
+  const baseRaw = API_BASE || '';
+  if (!baseRaw) {
+    throw new Error('Backend URL ausente. Defina VITE_API_URL no .env do frontend.');
   }
-  return full
+
+  // Normaliza slashes
+  const base = baseRaw.endsWith('/') ? baseRaw.slice(0, -1) : baseRaw;
+  const p = path.startsWith('/') ? path : `/${path}`;
+
+  const baseEndsWithApi = base.endsWith('/api') || base === '/api';
+  const pathHasApi = p.startsWith('/api');
+
+  let full = '';
+  if (baseEndsWithApi) {
+    full = base + p;
+  } else {
+    full = pathHasApi ? (base + p) : (base + '/api' + p);
+  }
+  return full;
 }
+
 
 async function fetchMonthlyDatasets(month) {
   const { start, end, spanDays } = monthBoundsJS(month)
