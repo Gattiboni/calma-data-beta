@@ -898,7 +898,7 @@ function CampaignsTable() {
   useEffect(() => { load() }, [status, period])
 
   return (
-  <div className="card" style={{ position: 'relative' }}>
+  <div className="card card-campaigns" style={{ position: 'relative' }}>
     <div className="card-header flex items-center justify-between">
       <div className="flex items-center gap-2">Performance de Campanhas</div>
       <div className="flex items-center gap-2">
@@ -923,7 +923,6 @@ function CampaignsTable() {
       </div>
     </div>
 
-    {/* 1) retiramos overflow-auto daqui para evitar scroll duplo */}
     <div className="card-body" style={{ position: 'relative' }}>
       {loading && (
         <div className="loading-overlay">
@@ -934,7 +933,6 @@ function CampaignsTable() {
         </div>
       )}
 
-      {/* 2) novo wrapper com max-height + overflow-y: auto (definido no seu CSS) */}
       <div className="table-campaigns-wrapper">
         <table className="table-campaigns">
           <thead>

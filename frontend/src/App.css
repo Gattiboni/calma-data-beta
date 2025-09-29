@@ -426,4 +426,13 @@ body {
   background: #F5F5F5;
 }
 
+/* Ajuste específico para o card de campanhas */
+.card-campaigns .card-body {
+  height: auto !important;       /* remove a altura fixa herdada */
+  min-height: unset !important;  /* garante que não force tamanho */
+  overflow: visible !important;  /* libera o conteúdo interno */
+  display: block;
+}
+
+
 
