@@ -3,15 +3,6 @@ import React, { useState } from 'react'
 import './Login.css'
 import { useAuth } from './AuthContext'
 
-const API_BASE = import.meta.env.REACT_APP_BACKEND_URL || process.env.REACT_APP_BACKEND_URL || ''
-
-function ensureApiBase(path) {
-  if (!API_BASE) return path
-  // Remove leading slash from path to avoid duplication
-  const cleanPath = path.startsWith('/') ? path.slice(1) : path
-  return `${API_BASE}/${cleanPath}`
-}
-
 export default function Login() {
   const { login } = useAuth()
   const [isLogin, setIsLogin] = useState(true)
@@ -31,12 +22,13 @@ export default function Login() {
     setSuccess('')
 
     try {
-      const endpoint = isLogin ? 'api/auth/login' : 'api/auth/register'
-      const body = isLogin 
+      const endpoint = isLogin ? 'auth/login' : 'auth/register'
+      const body = isLogin
         ? { email: formData.email, password: formData.password }
         : { name: formData.name, email: formData.email, password: formData.password }
 
-      const response = await fetch(ensureApiBase(endpoint), {
+      const API_BASE = import.meta.env.REACT_APP_BACKEND_URL || process.env.REACT_APP_BACKEND_URL
+      const response = await fetch(`${API_BASE}/${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -51,12 +43,12 @@ export default function Login() {
       }
 
       setSuccess(isLogin ? 'Login realizado com sucesso!' : 'Cadastro realizado com sucesso!')
-      
-      // Use the login function from useAuth hook (called at component level)
+
+      // Use a função login do hook useAuth (chamada no nível do componente)
       login(data.user, data.access_token)
 
     } catch (error) {
-      console.error('Auth error:', error)
+      console.error('Erro na autenticação:', error)
       setError(error.message)
     } finally {
       setLoading(false)
@@ -80,14 +72,14 @@ export default function Login() {
         </div>
 
         <div className="login-tabs">
-          <button 
+          <button
             type="button"
             className={`login-tab ${isLogin ? 'active' : ''}`}
             onClick={() => setIsLogin(true)}
           >
             Entrar
           </button>
-          <button 
+          <button
             type="button"
             className={`login-tab ${!isLogin ? 'active' : ''}`}
             onClick={() => setIsLogin(false)}
@@ -156,8 +148,8 @@ export default function Login() {
             </div>
           )}
 
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             className="login-button"
             disabled={loading}
           >

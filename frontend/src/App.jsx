@@ -197,7 +197,7 @@ function Topbar({ mode, setMode, range, setCustom, custom, onFeedbackClick, user
         <button
           onClick={onFeedbackClick}
           className="px-4 py-2 rounded-md text-white text-sm font-medium hover:opacity-80 transition-opacity"
-          style={{ backgroundColor: '#2A8C99' }}
+          style={{ backgroundColor: '#A8C6A6' }}
           aria-label="Fale com o desenvolvedor"
         >
           Fale com o Dev
@@ -1558,9 +1558,9 @@ async function captureMonthlyCharts(month) {
     document.body.appendChild(mount)
     const root = ReactDOM.createRoot(mount)
     const handleReady = (imgs) => {
-      setTimeout(() => { 
-        root.unmount() 
-        mount.remove() 
+      setTimeout(() => {
+        root.unmount()
+        mount.remove()
       }, 0)
       resolve(imgs)
     }
@@ -1593,7 +1593,8 @@ function AboutPage({ onBack }) {
           Voltar
         </button>
       </div>
-      <div className="card-body" style={{ height: 'calc(100vh - 220px)', padding: 0 }}>
+
+      <div className="card-body pdf-container">
         {/* Usa o viewer nativo do navegador (com toolbar e navegação) */}
         <iframe
           title="Sobre - Calma Data"
@@ -1604,6 +1605,7 @@ function AboutPage({ onBack }) {
     </div>
   )
 }
+
 
 function SettingsComingSoon({ onBack }) {
   return (
@@ -1745,34 +1747,46 @@ function Dashboard() {
   }, [range.start, range.end])
 
   return (
-    <div className="h-full flex flex-col" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
-      <Topbar
-        mode={mode}
-        setMode={setMode}
-        range={range}
-        setCustom={setCustom}
-        custom={custom}
-        onFeedbackClick={() => setFeedbackOpen(true)}
-        user={user}
-        onLogout={logout}
-      />
-      <div className="divider-horizontal w-full" />
-      <div className="flex-1 flex overflow-hidden">
-        <Sidebar active={route} onNavigate={setRoute} />
-        <div className="divider-vertical" />
-        {route === 'inicio' && (
-          <main className="flex-1 overflow-auto p-6 space-y-6">
+  <div className="h-full flex flex-col" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <Topbar
+      mode={mode}
+      setMode={setMode}
+      range={range}
+      setCustom={setCustom}
+      custom={custom}
+      onFeedbackClick={() => setFeedbackOpen(true)}
+      user={user}
+      onLogout={logout}
+    />
+    <div className="divider-horizontal w-full" />
+    <div className="flex-1 flex overflow-hidden">
+      <Sidebar active={route} onNavigate={setRoute} />
+      <div className="divider-vertical" />
+      
+      {route === 'sobre' && (
+        <main className="flex-1 overflow-auto p-6">
+          <AboutPage onBack={() => setRoute('inicio')} />
+        </main>
+      )}
 
-            {/* KPIs */}
-            <section className="kpi-grid">
-              <KPI title="RECEITA" value={loading ? '—' : formatBRLShort(data?.kpis?.receita)} loading={loading} icon="money" />
-              <KPI title="RESERVAS" value={loading ? '—' : data?.kpis?.reservas} loading={loading} icon="bag" />
-              <KPI title="DIÁRIAS" value={loading ? '—' : data?.kpis?.diarias} loading={loading} icon="moon" />
-              <KPI title="CLICKS" value={loading ? '—' : data?.kpis?.clicks?.toLocaleString('pt-BR')} loading={loading} icon="click" />
-              <KPI title="IMPRESSÕES" value={loading ? '—' : data?.kpis?.impressoes?.toLocaleString('pt-BR')} loading={loading} icon="eye" />
-              <KPI title="CPC" value={loading ? '—' : `R$${(data?.kpis?.cpc || 0).toFixed(2).replace('.', ',')}`} loading={loading} icon="coin" />
-              <KPI title="CUSTO" value={loading ? '—' : `R$${(data?.kpis?.custo || 0).toFixed(2).replace('.', ',')}`} loading={loading} icon="cost" />
-            </section>
+      {route === 'config' && (
+        <main className="flex-1 overflow-auto p-6">
+          <SettingsComingSoon onBack={() => setRoute('inicio')} />
+        </main>
+      )}
+
+      {route === 'inicio' && (
+        <main className="flex-1 overflow-auto p-6 space-y-6">
+          {/* KPIs */}
+          <section className="kpi-grid">
+            <KPI title="RECEITA" value={loading ? '—' : formatBRLShort(data?.kpis?.receita)} loading={loading} icon="money" />
+            <KPI title="RESERVAS" value={loading ? '—' : data?.kpis?.reservas} loading={loading} icon="bag" />
+            <KPI title="DIÁRIAS" value={loading ? '—' : data?.kpis?.diarias} loading={loading} icon="moon" />
+            <KPI title="CLICKS" value={loading ? '—' : data?.kpis?.clicks?.toLocaleString('pt-BR')} loading={loading} icon="click" />
+            <KPI title="IMPRESSÕES" value={loading ? '—' : data?.kpis?.impressoes?.toLocaleString('pt-BR')} loading={loading} icon="eye" />
+            <KPI title="CPC" value={loading ? '—' : `R$${(data?.kpis?.cpc || 0).toFixed(2).replace('.', ',')}`} loading={loading} icon="coin" />
+            <KPI title="CUSTO" value={loading ? '—' : `R$${(data?.kpis?.custo || 0).toFixed(2).replace('.', ',')}`} loading={loading} icon="cost" />
+          </section>
 
             {/* Receita por UH + painéis */}
             <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -1831,7 +1845,7 @@ function Dashboard() {
   )
 }
 
-export default function App(){
+export default function App() {
   return (
     <AuthProvider>
       <AppContent />

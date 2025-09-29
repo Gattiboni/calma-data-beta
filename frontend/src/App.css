@@ -297,22 +297,27 @@ body {
   font-size: 12px;
 }
 
-/* PDF viewer */ .pdf-frame { width: 100%; height: 100%; border: 0; border-radius: 10px; }
-/* Container do PDF na página "Sobre" */
-.card-body .pdf-frame {
-  display: block;
-  margin: 0 auto;
-  max-width: 900px; /* evita escapar em telas grandes */
-  height: 100%;
-  border-radius: 10px;
-}
-
-/* opcional: deixar fundo mais suave */
+/* Container do PDF */
 .card-body {
   background: #fdfdfd;
-  padding: 1rem;
+  padding: 0; /* remove padding pra altura ser total */
   box-sizing: border-box;
+  height: calc(100vh - 160px); /* ajuste conforme topbar e header */
+  overflow: hidden; /* evita barras duplas */
 }
+
+/* PDF viewer */
+.pdf-frame {
+  display: block;
+  width: 100%;        /* ocupa toda a largura */
+  height: 100%;       /* ocupa toda a altura */
+  margin: 0;
+  border: none;
+  border-radius: 10px;
+  max-width: none;    /* remove limite */
+}
+
+
 
 
 /* === Modal Overlay (popup centralizado) === */
