@@ -67,10 +67,11 @@ body {
   opacity: 0.95;
 }
 .kpi-value {
-  font-size: clamp(22px, 3.2vw, 34px);
-  line-height: 1.1;
+  font-size: clamp(20px, 2.5vw, 28px); /* reduz o limite máximo */
+  line-height: 1.2;                    /* melhora espaçamento vertical */
   font-weight: 700;
 }
+
 .kpi-colored {
   color: #FFFFFF;
 }
@@ -296,6 +297,13 @@ body {
   border-radius: 8px;
   font-size: 12px;
 }
+
+/* Wrapper responsivo para a tabela de campanhas */
+.table-campaigns-wrapper {
+  max-height: 70vh;     /* até 70% da altura da tela */
+  overflow-y: auto;     /* adiciona scroll se passar do limite */
+}
+
 
 /* Container do PDF */
 .card-body {

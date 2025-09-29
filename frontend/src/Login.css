@@ -72,8 +72,9 @@
   color: #2A8C99;
 }
 
-.login-form {
-  space-y: 24px;
+/* vertical spacing between children for .login-form is handled below */
+.login-form > *:not(:last-child) {
+  margin-bottom: 24px;
 }
 
 .form-group {

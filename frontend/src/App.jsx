@@ -898,31 +898,44 @@ function CampaignsTable() {
   useEffect(() => { load() }, [status, period])
 
   return (
-    <div className="card" style={{ position: 'relative' }}>
-      <div className="card-header flex items-center justify-between">
-        <div className="flex items-center gap-2">Performance de Campanhas</div>
-        <div className="flex items-center gap-2">
-          <select value={status} onChange={e => setStatus(e.target.value)} className="border rounded px-2 py-1 text-sm">
-            <option value="enabled">Ativas</option>
-            <option value="all">Todas</option>
-          </select>
-          <select value={period} onChange={e => setPeriod(e.target.value)} className="border rounded px-2 py-1 text-sm">
-            <option value="last30">Últimos 30 dias</option>
-            {monthsOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-          </select>
-        </div>
+  <div className="card" style={{ position: 'relative' }}>
+    <div className="card-header flex items-center justify-between">
+      <div className="flex items-center gap-2">Performance de Campanhas</div>
+      <div className="flex items-center gap-2">
+        <select
+          value={status}
+          onChange={e => setStatus(e.target.value)}
+          className="border rounded px-2 py-1 text-sm"
+        >
+          <option value="enabled">Ativas</option>
+          <option value="all">Todas</option>
+        </select>
+        <select
+          value={period}
+          onChange={e => setPeriod(e.target.value)}
+          className="border rounded px-2 py-1 text-sm"
+        >
+          <option value="last30">Últimos 30 dias</option>
+          {monthsOptions.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
       </div>
+    </div>
 
-      <div className="card-body overflow-auto" style={{ position: 'relative' }}>
-        {loading && (
-          <div className="loading-overlay">
-            <div className="flex flex-col items-center">
-              <div className="spinner"></div>
-              <div className="loading-text">Carregando dados…</div>
-            </div>
+    {/* 1) retiramos overflow-auto daqui para evitar scroll duplo */}
+    <div className="card-body" style={{ position: 'relative' }}>
+      {loading && (
+        <div className="loading-overlay">
+          <div className="flex flex-col items-center">
+            <div className="spinner"></div>
+            <div className="loading-text">Carregando dados…</div>
           </div>
-        )}
+        </div>
+      )}
 
+      {/* 2) novo wrapper com max-height + overflow-y: auto (definido no seu CSS) */}
+      <div className="table-campaigns-wrapper">
         <table className="table-campaigns">
           <thead>
             <tr>
@@ -954,31 +967,20 @@ function CampaignsTable() {
               <tr>
                 <td><strong>Total</strong></td>
                 <td>—</td>
-                <td className="cell-right">
-                  <strong>{data.total.clicks.toLocaleString('pt-BR')}</strong>
-                </td>
-                <td className="cell-right">
-                  <strong>{formatPct2(data.total.interaction_rate)}</strong>
-                </td>
-                <td className="cell-right">
-                  <strong>{formatBRL2(data.total.cost_total)}</strong>
-                </td>
-                <td className="cell-right">
-                  <strong>{formatBRL2(data.total.avg_cpc)}</strong>
-                </td>
-                <td className="cell-right">
-                  <strong>{formatPct2(data.total.conv_rate)}</strong>
-                </td>
-                <td className="cell-right">
-                  <strong>{formatBRL2(data.total.cost_per_conv)}</strong>
-                </td>
+                <td className="cell-right"><strong>{data.total.clicks.toLocaleString('pt-BR')}</strong></td>
+                <td className="cell-right"><strong>{formatPct2(data.total.interaction_rate)}</strong></td>
+                <td className="cell-right"><strong>{formatBRL2(data.total.cost_total)}</strong></td>
+                <td className="cell-right"><strong>{formatBRL2(data.total.avg_cpc)}</strong></td>
+                <td className="cell-right"><strong>{formatPct2(data.total.conv_rate)}</strong></td>
+                <td className="cell-right"><strong>{formatBRL2(data.total.cost_per_conv)}</strong></td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
     </div>
-  )
+  </div>
+)
 }
 
 function NetworksBreakdown() {
@@ -1662,7 +1664,7 @@ function FeedbackModal({ open, onClose }) {
       fd.append('component', component)
       for (const f of files) fd.append('files', f)
 
-      const res = await fetch('/api/feedback', { method: 'POST', body: fd })
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/feedback`, { method: 'POST', body: fd })
       const j = await res.json()
       if (!res.ok) throw new Error(j?.detail || 'Falha ao enviar')
 
@@ -1789,7 +1791,7 @@ function Dashboard() {
             <KPI title="CLICKS" value={loading ? '—' : data?.kpis?.clicks?.toLocaleString('pt-BR')} loading={loading} icon="click" />
             <KPI title="IMPRESSÕES" value={loading ? '—' : data?.kpis?.impressoes?.toLocaleString('pt-BR')} loading={loading} icon="eye" />
             <KPI title="CPC" value={loading ? '—' : `R$${(data?.kpis?.cpc || 0).toFixed(2).replace('.', ',')}`} loading={loading} icon="coin" />
-            <KPI title="CUSTO" value={loading ? '—' : `R$${(data?.kpis?.custo || 0).toFixed(2).replace('.', ',')}`} loading={loading} icon="cost" />
+            <KPI title="CUSTO" value={loading ? '—' : formatBRLShort(data?.kpis?.custo)} loading={loading} icon="cost" />
           </section>
 
             {/* Receita por UH + painéis */}
