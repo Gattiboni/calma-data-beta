@@ -2,6 +2,42 @@
 
 > Linha do tempo das entregas. Formato: **YYYY-MM-DD — título** + itens.
 
+## [1.0.0] — 2025-09-29 — Release de Produção
+
+### Added
+- Deploy completo em **produção**:
+  - **Backend** (FastAPI) publicado na **Railway**: [`https://calma-data-beta-production.up.railway.app`](https://calma-data-beta-production.up.railway.app)
+  - **Frontend** (Vite/React) publicado na **Vercel**: [`https://calma-data-beta.vercel.app`](https://calma-data-beta.vercel.app)
+- Integrações ativas e testadas:
+  - **Google Analytics 4** (Service Account)
+  - **Google Ads** (OAuth2)
+  - **Supabase** (banco e autenticação)
+  - **OpenAI API** (suporte a futuras análises)
+  - **Resend** (envio de e-mails de feedback)
+- Healthcheck `/api/health` confirmando integrações ativas:
+  ```json
+  {"status":"ok","integrations":{"ga4":true,"google_ads":true}}
+Fixed
+Erro 405 no envio de feedback: requisições agora direcionadas ao backend (/api/feedback).
+
+Altura fixa da tabela de campanhas: substituída por wrapper responsivo com rolagem automática.
+
+Inconsistências de variáveis de ambiente: unificação sob o padrão VITE_* no frontend.
+
+Changed
+KPI de Custo: agora formatado com formatBRLShort (sem casas decimais, abreviação “K”).
+
+Layout do card de campanhas: rolagem controlada, responsividade aprimorada.
+
+.env unificado: fonte única de variáveis para Railway e Vercel.
+
+Documentação: atualização completa do README.md com instruções de deploy, stack e setup local.
+
+Notes
+Versão 1.0.0 marca o início da fase produção.
+
+Entrega validada e aprovada para uso real pelo cliente.
+
 ## [Unreleased] — 2025-09-24
 ### Changed
 - **KPI Receita:** correção — agora soma o **total do período** diretamente pela métrica `itemRevenue` (GA4 Data API).

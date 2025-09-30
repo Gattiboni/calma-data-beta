@@ -1,78 +1,43 @@
-﻿calma-data-beta
-├── .emergent
-├── backend
-│   ├── .env.example
-│   ├── requirements.txt
-│   └── server.py
-├── calma-data-beta.git
-│   ├── filter-repo
-│   │   ├── already_ran
-│   │   ├── changed-refs
-│   │   ├── commit-map
-│   │   ├── first-changed-commits
-│   │   ├── ref-map
-│   │   └── suboptimal-issues
-│   ├── hooks
-│   │   ├── applypatch-msg.sample
-│   │   ├── commit-msg.sample
-│   │   ├── fsmonitor-watchman.sample
-│   │   ├── post-update.sample
-│   │   ├── pre-applypatch.sample
-│   │   ├── pre-commit.sample
-│   │   ├── pre-merge-commit.sample
-│   │   ├── prepare-commit-msg.sample
-│   │   ├── pre-push.sample
-│   │   ├── pre-rebase.sample
-│   │   ├── pre-receive.sample
-│   │   ├── push-to-checkout.sample
-│   │   ├── sendemail-validate.sample
-│   │   └── update.sample
-│   ├── info
-│   │   ├── exclude
-│   │   └── refs
-│   ├── objects
-│   │   ├── info
-│   │   │   ├── commit-graph
-│   │   │   └── packs
-│   │   └── pack
-│   │       ├── pack-84853e1eaa0929ec7e45686bd5891f18323cb888.bitmap
-│   │       ├── pack-84853e1eaa0929ec7e45686bd5891f18323cb888.idx
-│   │       ├── pack-84853e1eaa0929ec7e45686bd5891f18323cb888.pack
-│   │       └── pack-84853e1eaa0929ec7e45686bd5891f18323cb888.rev
-│   ├── refs
-│   │   ├── heads
-│   │   ├── remotes
-│   │   └── tags
-│   ├── config
-│   ├── description
-│   ├── HEAD
-│   └── packed-refs
-├── docs
-│   ├── CHANGELOG.md
-│   ├── DECISION_LOG.md
-│   ├── OPERATIONS.md
-│   ├── ROADMAP.md
-│   ├── STACK.md
-│   └── tree.txt
-├── frontend
-│   ├── .yarn
-│   ├── public
-│   ├── src
-│   │   ├── App.css
-│   │   ├── App.jsx
-│   │   ├── index.css
-│   │   └── index.jsx
-│   ├── .env
-│   ├── .yarnrc.yml
-│   ├── index.html
-│   ├── package.json
-│   ├── package-lock.json
-│   ├── postcss.config.js
-│   ├── tailwind.config.js
-│   └── vite.config.js
-├── .env
-├── .gitconfig
-├── .gitignore
-├── backend_test.py
-└── README.md
-
+﻿calma-data-beta/
+├── backend/
+│ ├── pycache/ # cache Python
+│ ├── .env # variáveis do backend
+│ ├── .env.example # modelo de variáveis
+│ ├── requirements.txt # dependências Python
+│ ├── server.py # app FastAPI principal
+│ └── calma-data-beta.git # metadados do Railway
+│
+├── docs/ # documentação do projeto
+│ ├── CHANGELOG.md
+│ ├── DECISION_LOG.md
+│ ├── OPERATIONS.md
+│ ├── ROADMAP.md
+│ └── STACK.md
+│
+├── frontend/
+│ ├── .env # variáveis locais do front
+│ ├── .env.production # variáveis de produção
+│ ├── .yarnrc.yml # config Yarn
+│ ├── index.html # template HTML
+│ ├── package.json # dependências JS
+│ ├── package-lock.json
+│ ├── postcss.config.js
+│ ├── public/
+│ │ ├── About.pdf
+│ │ └── logo-calma-data.png
+│ └── src/
+│ ├── App.css
+│ ├── App.jsx
+│ ├── AuthContext.jsx
+│ ├── index.css
+│ ├── index.jsx
+│ ├── Login.css
+│ └── Login.jsx
+│
+├── .emergent/ # configs internas
+│ └── emergent.yml
+│
+├── .vscode/ # config VS Code
+│ └── settings.json (se aplicável)
+│
+└── tree.txt # estrutura textual
