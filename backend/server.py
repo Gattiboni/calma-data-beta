@@ -458,6 +458,8 @@ def ads_enabled_campaign_totals(start: str, end: str) -> Optional[Dict[str, Any]
         WHERE segments.date BETWEEN '{start}' AND '{end}'
           AND metrics.impressions > 0
     """
+    print(f"[DEBUG] GAQL Query (ads_enabled_campaign_totals):\n{query}")
+
 
     resp = service.search(customer_id=customer_id, query=query)
 
@@ -742,7 +744,17 @@ def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
         WHERE {where_clause}
     """
 
+    print(f"[DEBUG] GAQL Query (ads_campaigns_filtered):\n{query}")
+
+
     resp = service.search(customer_id=customer_id, query=query)
+    rows_count = 0
+    for _ in resp:
+        rows_count += 1
+    print(f"[DEBUG] Ads response rows: {rows_count}")
+    # Reinicializa o cursor para poder iterar novamente
+    resp = service.search(customer_id=customer_id, query=query)
+
 
     rows = []
     totals = {
