@@ -1377,8 +1377,20 @@ async def adr_by_stay_date(start: str = Query(...), end: str = Query(...), refre
 
 
 @app.get("/api/marketing-dials", response_model=DialsResponse)
-async def marketing_dials(start: str = Query(...), end: str = Query(...), refresh: Optional[int] = 0):
-    # Returns CR and ROAS with comparison to previous equivalent period
+async def marketing_dials(
+    start: str = Query(None),
+    end: str = Query(None),
+    period: str = Query("last30"),
+    refresh: Optional[int] = 0
+):
+    # Se não vier start/end → aplica período padrão (últimos 30 dias)
+    if not start or not end:
+        today = datetime.utcnow().date()
+        if period == "last30":
+            start = (today - timedelta(days=29)).isoformat()
+            end = today.isoformat()
+
+    # Converte datas
     s, e = parse_dates(start, end)
     prev = (s - timedelta(days=(e - s).days + 1), s - timedelta(days=1))
     prev_start = prev[0].strftime("%Y-%m-%d")
@@ -1413,6 +1425,7 @@ async def marketing_dials(start: str = Query(...), end: str = Query(...), refres
     cache.set(key, payload)
     return payload
 
+
 # -------------------------------------------------------------------
 # Novo endpoint: /api/ads-campaigns
 # -------------------------------------------------------------------
@@ -1443,7 +1456,7 @@ async def ads_campaigns(
     refresh: Optional[int] = 0,
 ):
     """Endpoint para listar campanhas do Google Ads com filtros de período e status."""
-    
+
     cache_key = f"ads-campaigns-{status}-{period}-{month or ''}"
     if not refresh:
         cached = cache.get(cache_key, ttl_seconds=10 * 60)
@@ -1451,6 +1464,7 @@ async def ads_campaigns(
             return cached
 
     # Resolve intervalo
+    start, end = None, None
     if month:
         start, end = month_bounds(month)
         if not start:
@@ -1458,8 +1472,13 @@ async def ads_campaigns(
                 status_code=422,
                 detail="month deve estar no formato YYYY-MM"
             )
+    elif period == "last30":
+        end_dt = datetime.utcnow().date()
+        start_dt = end_dt - timedelta(days=29)
+        start = start_dt.strftime("%Y-%m-%d")
+        end = end_dt.strftime("%Y-%m-%d")
     else:
-        # Últimos 30 dias
+        # fallback simples: últimos 30 dias se vier period desconhecido
         end_dt = datetime.utcnow().date()
         start_dt = end_dt - timedelta(days=29)
         start = start_dt.strftime("%Y-%m-%d")
@@ -1483,6 +1502,7 @@ async def ads_campaigns(
     cache.set(cache_key, payload)
     return payload
 
+
 @app.get("/api/ads-networks")
 async def ads_networks(
     period: str = Query("last30"),
@@ -1496,11 +1516,17 @@ async def ads_networks(
             return cached
 
     # Resolve intervalo
+    start, end = None, None
     if month:
         start, end = month_bounds(month)
         if not start:
             raise HTTPException(status_code=422, detail="month deve estar no formato YYYY-MM")
+    elif period == "last30":
+        end_dt = datetime.utcnow().date()
+        start_dt = end_dt - timedelta(days=29)
+        start, end = start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d")
     else:
+        # fallback para último 30 dias se vier period desconhecido
         end_dt = datetime.utcnow().date()
         start_dt = end_dt - timedelta(days=29)
         start, end = start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d")
@@ -1515,6 +1541,7 @@ async def ads_networks(
 
     cache.set(cache_key, payload)
     return payload
+
 
 # -------------------- MONTHLY REPORT ENDPOINT --------------------
 
