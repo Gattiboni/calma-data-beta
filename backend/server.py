@@ -447,13 +447,20 @@ def ads_enabled_campaign_totals(start: str, end: str) -> Optional[Dict[str, Any]
         return None
     service = ads_client.get_service("GoogleAdsService")
     customer_id = ADS_CUSTOMER_ID.replace("-", "")
+
     query = f"""
-        SELECT campaign.status, metrics.clicks, metrics.conversions, metrics.conversions_value, metrics.cost_micros
+        SELECT
+          metrics.clicks,
+          metrics.conversions,
+          metrics.conversions_value,
+          metrics.cost_micros
         FROM campaign
         WHERE segments.date BETWEEN '{start}' AND '{end}'
-          AND campaign.status = 'ENABLED'
+          AND metrics.impressions > 0
     """
+
     resp = service.search(customer_id=customer_id, query=query)
+
     clicks = conv = 0
     conv_value = cost = 0.0
     for row in resp:
@@ -461,9 +468,18 @@ def ads_enabled_campaign_totals(start: str, end: str) -> Optional[Dict[str, Any]
         conv += int(row.metrics.conversions or 0)
         conv_value += float(row.metrics.conversions_value or 0)
         cost += (row.metrics.cost_micros or 0) / 1_000_000
+
     cr = (conv / clicks) if clicks else 0.0
     roas = (conv_value / cost) if cost else 0.0
-    return {"clicks": clicks, "conversions": conv, "conv_value": round(conv_value, 2), "cost": round(cost, 2), "cr": cr, "roas": roas}
+    return {
+        "clicks": clicks,
+        "conversions": conv,
+        "conv_value": round(conv_value, 2),
+        "cost": round(cost, 2),
+        "cr": cr,
+        "roas": roas
+    }
+
 
 def ga4_sum_item_revenue(start: str, end: str) -> Optional[float]:
     if not ga4_client or not GA4_PROPERTY_ID:
@@ -701,14 +717,9 @@ def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
     service = ads_client.get_service("GoogleAdsService")
     customer_id = ADS_CUSTOMER_ID.replace("-", "")
 
-    # Monta WHERE só com AND (GAQL não suporta OR)
+    # Mantemos apenas o filtro de data e atividade
     conditions = [f"segments.date BETWEEN '{start}' AND '{end}'"]
-
-    if status == "enabled":
-        # "Ativas": espelha a UI -> Eligible / Eligible (Limited)
-        conditions.append("campaign.primary_status IN (ELIGIBLE, LIMITED)")
-
-    # Garante atividade no período (sem OR): usamos impressões > 0
+    # Inclui apenas campanhas que tiveram impressões no período
     conditions.append("metrics.impressions > 0")
 
     where_clause = " AND ".join(conditions)
@@ -731,8 +742,6 @@ def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
         WHERE {where_clause}
     """
 
-    # print("GAQL:\n", query)  # útil pra depurar
-
     resp = service.search(customer_id=customer_id, query=query)
 
     rows = []
@@ -754,7 +763,6 @@ def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
         ir = float(r.metrics.interaction_rate or 0)
         cfr = float(r.metrics.conversions_from_interactions_rate or 0)
 
-        # Fallbacks defensivos
         if ir == 0 and imps > 0 and inter > 0:
             ir = inter / imps
         if cfr == 0 and inter > 0 and conv > 0:
@@ -784,24 +792,8 @@ def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
         totals["conversions"] += conv
 
     rows.sort(key=lambda x: x["cost_total"], reverse=True)
+    return {"rows": rows, "total": totals}
 
-    tot_ir = (totals["interactions"] / totals["impressions"]) if totals["impressions"] else 0.0
-    tot_cfr = (totals["conversions"] / totals["interactions"]) if totals["interactions"] else 0.0
-    tot_cpcv = (totals["cost"] / totals["conversions"]) if totals["conversions"] else 0.0
-    tot_avg_cpc = (totals["cost"] / totals["clicks"]) if totals["clicks"] else 0.0
-
-    total_row = {
-        "name": "Total",
-        "type": "—",
-        "clicks": totals["clicks"],
-        "interaction_rate": tot_ir,
-        "cost_total": round(totals["cost"], 2),
-        "avg_cpc": round(tot_avg_cpc, 2),
-        "conv_rate": tot_cfr,
-        "cost_per_conv": round(tot_cpcv, 2),
-    }
-
-    return {"rows": rows, "total": total_row}
 
 def ads_networks_breakdown(start: str, end: str):
     """
