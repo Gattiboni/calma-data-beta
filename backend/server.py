@@ -444,8 +444,13 @@ def ga4_revenue_qty_by_date(start: str, end: str) -> Optional[List[Dict[str, Any
 
 
 def ads_enabled_campaign_totals(start: str, end: str) -> Optional[Dict[str, Any]]:
+    """
+    Totais agregados para KPIs dos dials (CR e ROAS) no período.
+    Retorna: {"clicks", "conversions", "value", "cost", "cr", "roas"}
+    """
     if not ads_client or not ADS_CUSTOMER_ID:
         return None
+
     service = ads_client.get_service("GoogleAdsService")
     customer_id = ADS_CUSTOMER_ID.replace("-", "")
 
@@ -459,28 +464,36 @@ def ads_enabled_campaign_totals(start: str, end: str) -> Optional[Dict[str, Any]
         WHERE segments.date BETWEEN '{start}' AND '{end}'
           AND metrics.impressions > 0
     """
-    print(f"[DEBUG] GAQL Query (ads_enabled_campaign_totals):\n{query}")
 
+    print(f"[DEBUG] GAQL (ads_enabled_campaign_totals):\n{query}")
 
-    resp = service.search(customer_id=customer_id, query=query)
+    try:
+        resp = service.search(customer_id=customer_id, query=query)
+    except Exception as e:
+        print(f"[ERROR] ads_enabled_campaign_totals: {e}")
+        return None
 
-    clicks = conv = 0
-    conv_value = cost = 0.0
+    clicks = 0
+    conv = 0.0
+    conv_value = 0.0
+    cost = 0.0
+
     for row in resp:
         clicks += int(row.metrics.clicks or 0)
-        conv += int(row.metrics.conversions or 0)
+        conv += float(row.metrics.conversions or 0)
         conv_value += float(row.metrics.conversions_value or 0)
         cost += (row.metrics.cost_micros or 0) / 1_000_000
 
     cr = (conv / clicks) if clicks else 0.0
     roas = (conv_value / cost) if cost else 0.0
+
     return {
         "clicks": clicks,
-        "conversions": conv,
-        "conv_value": round(conv_value, 2),
+        "conversions": round(conv, 2),
+        "value": round(conv_value, 2),
         "cost": round(cost, 2),
-        "cr": cr,
-        "roas": roas
+        "cr": round(cr, 4),
+        "roas": round(roas, 2),
     }
 
 
@@ -715,124 +728,104 @@ def ads_campaign_rows(start: str, end: str) -> Optional[List[Dict[str, Any]]]:
 
 def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
     if not ads_client or not ADS_CUSTOMER_ID:
-        return None
+        """
+        Campanhas (Google Ads) no período, agregadas ao nível de campanha.
+        - Mantém apenas linhas com métricas reais (impressões > 0) para garantir retorno útil.
+        - Quando status='enabled', aplica filtro de status no GAQL; caso contrário, traz todas.
+        Retorno: {"rows": [...], "total": {...}}
+        """
+        if not ads_client or not ADS_CUSTOMER_ID:
+            return {"rows": [], "total": None}
 
-    service = ads_client.get_service("GoogleAdsService")
-    customer_id = ADS_CUSTOMER_ID.replace("-", "")
+        service = ads_client.get_service("GoogleAdsService")
+        customer_id = ADS_CUSTOMER_ID.replace("-", "")
 
-    # Filtro apenas por data + impressões > 0
-    conditions = [f"segments.date BETWEEN '{start}' AND '{end}'"]
-    where_clause = " AND ".join(conditions)
+        # Cláusulas
+        conditions = [
+            f"segments.date BETWEEN '{start}' AND '{end}'",
+            "metrics.impressions > 0",  # linhas sem métricas não retornam (boas práticas)
+        ]
+        if status == "enabled":
+            conditions.append("campaign.status = 'ENABLED'")
 
-    query = f"""
-        SELECT
-          campaign.name,
-          campaign.advertising_channel_type,
-          campaign.status,
-          campaign.primary_status,
-          metrics.clicks,
-          metrics.impressions,
-          metrics.interactions,
-          metrics.interaction_rate,
-          metrics.cost_micros,
-          metrics.average_cpc,
-          metrics.conversions,
-          metrics.conversions_from_interactions_rate
-        FROM campaign
-        WHERE {where_clause}
-        ORDER BY metrics.impressions DESC
-        LIMIT 50
-    """
+        where_clause = " AND ".join(conditions)
 
-    print(f"\n[DEBUG] --- GAQL Query ads_campaigns_filtered ---")
-    print(query)
+        query = f"""
+            SELECT
+              campaign.name,
+              campaign.advertising_channel_type,
+              campaign.status,
+              campaign.primary_status,
+              metrics.clicks,
+              metrics.impressions,
+              metrics.interactions,
+              metrics.interaction_rate,
+              metrics.cost_micros,
+              metrics.average_cpc,
+              metrics.conversions,
+              metrics.conversions_from_interactions_rate
+            FROM campaign
+            WHERE {where_clause}
+            ORDER BY metrics.cost_micros DESC
+            LIMIT 1000
+        """
 
-    try:
-        resp = service.search(customer_id=customer_id, query=query)
-        rows_count = 0
-        for _ in resp:
-            rows_count += 1
-        print(f"[DEBUG] Rows returned: {rows_count}")
-        # Reinicia o cursor
-        resp = service.search(customer_id=customer_id, query=query)
-    except Exception as e:
-        print(f"[ERROR] Google Ads query failed: {e}")
-        return {"rows": [], "total": None}
+        print(f"[DEBUG] GAQL (ads_campaigns_filtered):\n{query}")
 
+        try:
+            resp = service.search(customer_id=customer_id, query=query)
+        except Exception as e:
+            print(f"[ERROR] ads_campaigns_filtered: {e}")
+            return {"rows": [], "total": None}
 
+        rows = []
+        totals = {"clicks": 0, "impressions": 0, "interactions": 0, "cost": 0.0, "conversions": 0.0}
 
-    resp = service.search(customer_id=customer_id, query=query)
-    rows_count = 0
-    for _ in resp:
-        rows_count += 1
-    print(f"[DEBUG] Ads response rows: {rows_count}")
-    # Reinicializa o cursor para poder iterar novamente
-    resp = service.search(customer_id=customer_id, query=query)
+        for r in resp:
+            clicks = int(r.metrics.clicks or 0)
+            imps = int(r.metrics.impressions or 0)
+            inter = int(r.metrics.interactions or 0)
+            cost = (r.metrics.cost_micros or 0) / 1_000_000
+            avg_cpc = (r.metrics.average_cpc or 0) / 1_000_000
+            conv = float(r.metrics.conversions or 0)
+            ir = float(r.metrics.interaction_rate or 0)
+            cfr = float(r.metrics.conversions_from_interactions_rate or 0)
 
+            # Backfills defensivos caso a API retorne 0 para algumas taxas
+            if ir == 0 and imps > 0 and inter > 0:
+                ir = inter / imps
+            if cfr == 0 and inter > 0 and conv > 0:
+                cfr = conv / inter
 
-    rows = []
-    totals = {
-        "clicks": 0,
-        "impressions": 0,
-        "interactions": 0,
-        "cost": 0.0,
-        "conversions": 0.0,
-    }
+            cpcv = (cost / conv) if conv > 0 else 0.0
 
-    for r in resp:
-        clicks = int(r.metrics.clicks or 0)
-        imps = int(r.metrics.impressions or 0)
-        inter = int(r.metrics.interactions or 0)
-        cost = (r.metrics.cost_micros or 0) / 1_000_000
-        avg_cpc = (r.metrics.average_cpc or 0) / 1_000_000
-        conv = float(r.metrics.conversions or 0)
-        ir = float(r.metrics.interaction_rate or 0)
-        cfr = float(r.metrics.conversions_from_interactions_rate or 0)
+            rows.append({
+                "name": r.campaign.name,
+                "type": getattr(r.campaign.advertising_channel_type, "name", str(r.campaign.advertising_channel_type)),
+                "clicks": clicks,
+                "interaction_rate": ir,
+                "cost_total": round(cost, 2),
+                "avg_cpc": round(avg_cpc if avg_cpc else (cost / clicks if clicks else 0), 2),
+                "conv_rate": cfr,
+                "cost_per_conv": round(cpcv, 2),
+                "status": getattr(r.campaign.status, "name", str(r.campaign.status)),
+                "primary_status": getattr(r.campaign.primary_status, "name", str(r.campaign.primary_status)),
+            })
 
-        if ir == 0 and imps > 0 and inter > 0:
-            ir = inter / imps
-        if cfr == 0 and inter > 0 and conv > 0:
-            cfr = conv / inter
+            totals["clicks"] += clicks
+            totals["impressions"] += imps
+            totals["interactions"] += inter
+            totals["cost"] += cost
+            totals["conversions"] += conv
 
-        cpcv = (cost / conv) if conv > 0 else 0.0
-
-        rows.append({
-            "name": r.campaign.name,
-            "type": (
-                r.campaign.advertising_channel_type.name
-                if hasattr(r.campaign.advertising_channel_type, "name")
-                else str(r.campaign.advertising_channel_type)
-            ),
-            "clicks": clicks,
-            "interaction_rate": ir,
-            "cost_total": round(cost, 2),
-            "avg_cpc": round(avg_cpc if avg_cpc else (cost / clicks if clicks else 0), 2),
-            "conv_rate": cfr,
-            "cost_per_conv": round(cpcv, 2),
-            # 🆕 Adicione estes dois campos:
-            "status": getattr(r.campaign.status, "name", str(r.campaign.status)),
-            "primary_status": getattr(r.campaign.primary_status, "name", str(r.campaign.primary_status)),
-        })
-
-
-        totals["clicks"] += clicks
-        totals["impressions"] += imps
-        totals["interactions"] += inter
-        totals["cost"] += cost
-        totals["conversions"] += conv
-
-    rows.sort(key=lambda x: x["cost_total"], reverse=True)
-    return {"rows": rows, "total": totals}
+        rows.sort(key=lambda x: x["cost_total"], reverse=True)
+        return {"rows": rows, "total": totals}
 
 
 def ads_networks_breakdown(start: str, end: str):
     """
-    Retorna totais e percentuais por rede (Google Search, Search partners, Display Network)
-    para métricas: conversions, cost, conversions_value.
-    Mapeamento:
-      - Google Search: segments.ad_network_type = SEARCH
-      - Search partners: segments.ad_network_type = SEARCH_PARTNERS
-      - Display Network: DISPLAY + YOUTUBE_SEARCH + YOUTUBE_WATCH
+    Quebra por rede (Pesquisa Google, Parceiros de pesquisa, Display/YT) com shares.
+    Retorna: {"nets": {...}, "totals": {...}, "shares": {...}}
     """
     if not ads_client or not ADS_CUSTOMER_ID:
         return None
@@ -840,18 +833,22 @@ def ads_networks_breakdown(start: str, end: str):
     service = ads_client.get_service("GoogleAdsService")
     customer_id = ADS_CUSTOMER_ID.replace("-", "")
 
+    # Usamos FROM campaign com o segmento ad_network_type (válido segundo docs)
+    # e garantimos métricas reais no período.
     query = f"""
       SELECT
         segments.ad_network_type,
-        metrics.clicks,
         metrics.impressions,
+        metrics.clicks,
         metrics.cost_micros,
         metrics.conversions,
         metrics.conversions_value
       FROM campaign
       WHERE segments.date BETWEEN '{start}' AND '{end}'
+        AND metrics.impressions > 0
     """
 
+    print(f"[DEBUG] GAQL (ads_networks_breakdown):\n{query}")
     resp = service.search(customer_id=customer_id, query=query)
 
     nets = {
@@ -861,23 +858,21 @@ def ads_networks_breakdown(start: str, end: str):
     }
 
     def bucket_name(net):
-        # net é um enum: SEARCH, SEARCH_PARTNERS, DISPLAY, YOUTUBE_SEARCH, YOUTUBE_WATCH, etc.
+        # net: enum => string
         n = net.name if hasattr(net, "name") else str(net)
-        if "SEARCH_PARTNERS" in n:
-            return "Search partners"
-        if n == "SEARCH":
+        if n in ("SEARCH",):
             return "Google Search"
-        if n in ("DISPLAY", "YOUTUBE_SEARCH", "YOUTUBE_WATCH") or "DISPLAY" in n or "YOUTUBE" in n:
-            return "Display Network"
-        # fallback: agrega em Display
+        if n in ("SEARCH_PARTNERS",):
+            return "Search partners"
+        # DISPLAY + YouTube (agrupa no "Display Network")
         return "Display Network"
 
     for row in resp:
-        net_label = bucket_name(row.segments.ad_network_type)
+        key = bucket_name(row.segments.ad_network_type)
         cost = (row.metrics.cost_micros or 0) / 1_000_000
-        nets[net_label]["conversions"] += float(row.metrics.conversions or 0)
-        nets[net_label]["cost"] += float(cost)
-        nets[net_label]["conv_value"] += float(row.metrics.conversions_value or 0)
+        nets[key]["conversions"] += float(row.metrics.conversions or 0)
+        nets[key]["cost"] += cost
+        nets[key]["conv_value"] += float(row.metrics.conversions_value or 0)
 
     totals = {
         "conversions": sum(v["conversions"] for v in nets.values()),
@@ -885,8 +880,7 @@ def ads_networks_breakdown(start: str, end: str):
         "conv_value": sum(v["conv_value"] for v in nets.values()),
     }
 
-    def pct(val, tot):
-        return (val / tot) if tot else 0.0
+    def pct(val, tot): return (val / tot) if tot else 0.0
 
     shares = {
         "conversions": {k: pct(v["conversions"], totals["conversions"]) for k, v in nets.items()},
@@ -1407,10 +1401,13 @@ async def marketing_dials(
 ):
     # Se não vier start/end → aplica período padrão (últimos 30 dias)
     if not start or not end:
-        today = datetime.utcnow().date()
+        from datetime import timezone
+        today_utc = datetime.now(timezone.utc).date()
         if period == "last30":
-            start = (today - timedelta(days=29)).isoformat()
-            end = today.isoformat()
+            end_dt = today_utc - timedelta(days=1)        # ontem
+            start_dt = end_dt - timedelta(days=29)
+            start = start_dt.isoformat()
+            end = end_dt.isoformat()
 
     # Converte datas
     s, e = parse_dates(start, end)
@@ -1495,14 +1492,14 @@ async def ads_campaigns(
                 detail="month deve estar no formato YYYY-MM"
             )
     elif period == "last30":
-        # últimos 30 dias completos, terminando em ontem (evita dia futuro sem dados)
+        from datetime import timezone
         today_utc = datetime.now(timezone.utc).date()
         end_dt = today_utc - timedelta(days=1)
         start_dt = end_dt - timedelta(days=29)
         start = start_dt.strftime("%Y-%m-%d")
         end = end_dt.strftime("%Y-%m-%d")
     else:
-        # fallback: mesmos últimos 30 dias completos (termina em ontem)
+        from datetime import timezone
         today_utc = datetime.now(timezone.utc).date()
         end_dt = today_utc - timedelta(days=1)
         start_dt = end_dt - timedelta(days=29)
@@ -1548,14 +1545,14 @@ async def ads_networks(
         if not start:
             raise HTTPException(status_code=422, detail="month deve estar no formato YYYY-MM")
     elif period == "last30":
-        # últimos 30 dias completos, terminando em ontem (evita dia futuro sem dados)
+        from datetime import timezone
         today_utc = datetime.now(timezone.utc).date()
         end_dt = today_utc - timedelta(days=1)
         start_dt = end_dt - timedelta(days=29)
         start = start_dt.strftime("%Y-%m-%d")
         end = end_dt.strftime("%Y-%m-%d")
     else:
-        # fallback: mesmos últimos 30 dias completos (termina em ontem)
+        from datetime import timezone
         today_utc = datetime.now(timezone.utc).date()
         end_dt = today_utc - timedelta(days=1)
         start_dt = end_dt - timedelta(days=29)
