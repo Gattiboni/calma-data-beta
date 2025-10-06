@@ -721,7 +721,7 @@ def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
     customer_id = ADS_CUSTOMER_ID.replace("-", "")
 
     # Filtro apenas por data + impressões > 0
-    conditions = [f"segments.date BETWEEN '{start}' AND '{end}'", "metrics.impressions > 0"]
+    conditions = [f"segments.date BETWEEN '{start}' AND '{end}'"]
     where_clause = " AND ".join(conditions)
 
     query = f"""
