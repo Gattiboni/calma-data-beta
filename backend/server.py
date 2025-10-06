@@ -1953,3 +1953,30 @@ async def health():
     }
     return {"status": "ok", "integrations": integrations}
 
+
+@app.get("/api/ads-debug")
+def ads_debug():
+    service = ads_client.get_service("GoogleAdsService")
+    customer_id = ADS_CUSTOMER_ID.replace("-", "")
+    query = """
+    SELECT
+      campaign.name,
+      campaign.status,
+      campaign.primary_status,
+      metrics.impressions,
+      metrics.clicks
+    FROM campaign
+    WHERE metrics.impressions >= 0
+    LIMIT 10
+    """
+    resp = service.search(customer_id=customer_id, query=query)
+    rows = []
+    for r in resp:
+        rows.append({
+            "name": r.campaign.name,
+            "status": r.campaign.status.name,
+            "primary_status": r.campaign.primary_status.name,
+            "impressions": int(r.metrics.impressions or 0),
+            "clicks": int(r.metrics.clicks or 0)
+        })
+    return {"rows": rows}
