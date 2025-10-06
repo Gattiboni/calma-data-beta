@@ -795,7 +795,11 @@ def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
             "avg_cpc": round(avg_cpc if avg_cpc else (cost / clicks if clicks else 0), 2),
             "conv_rate": cfr,
             "cost_per_conv": round(cpcv, 2),
+            # 🆕 Adicione estes dois campos:
+            "status": getattr(r.campaign.status, "name", str(r.campaign.status)),
+            "primary_status": getattr(r.campaign.primary_status, "name", str(r.campaign.primary_status)),
         })
+
 
         totals["clicks"] += clicks
         totals["impressions"] += imps
