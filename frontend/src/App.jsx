@@ -339,21 +339,17 @@ function useDashboardData(range) {
   useEffect(() => {
     let cancelled = false
     async function load() {
+      setLoading(true)
       try {
-        setLoading(true)
-        if (demo) {
-          const d = buildDemo(range)
-          if (!cancelled) setData(d)
-          return
-        }
-        const params = { start: range.start, end: range.end }
+        // Removed duplicate 'params' declaration to fix redeclaration error
+        const apiParams = { start: range.start, end: range.end }
         const prev = getPrevRange(range)
         const [kpis, acq, revUH, adr, dials] = await Promise.all([
-          api('/kpis', params),
-          api('/acquisition-by-channel', { ...params, metric: 'users' }),
-          api('/revenue-by-uh', params),
-          api('/adr', params),
-          api('/marketing-dials', params)
+          api('/kpis', apiParams),
+          api('/acquisition-by-channel', { ...apiParams, metric: 'users' }),
+          api('/revenue-by-uh', apiParams),
+          api('/adr', apiParams),
+          api('/marketing-dials', apiParams)
         ])
         const [prevAcq, prevRevUH, prevAdr, prevDials] = await Promise.all([
           api('/acquisition-by-channel', { start: prev.start, end: prev.end, metric: 'users' }),
@@ -889,96 +885,113 @@ function CampaignsTable() {
   async function load() {
     setLoading(true)
     try {
-      const params = period === 'last30' ? { status, period } : { status, month: period }
+      // Sempre busca TODAS as campanhas. O filtro "Ativas/Todas" será só no front.
+      const params = period === 'last30'
+        ? { status: 'all', period }
+        : { status: 'all', month: period }
+
       const resp = await api('/ads-campaigns', params)
       setData(resp || { rows: [], total: null })
-    } finally { setLoading(false) }
+    } finally {
+      setLoading(false)
+    }
   }
 
-  useEffect(() => { load() }, [status, period])
+
+
+
+  useEffect(() => { load() }, [period])
 
   return (
-  <div className="card card-campaigns" style={{ position: 'relative' }}>
-    <div className="card-header flex items-center justify-between">
-      <div className="flex items-center gap-2">Performance de Campanhas</div>
-      <div className="flex items-center gap-2">
-        <select
-          value={status}
-          onChange={e => setStatus(e.target.value)}
-          className="border rounded px-2 py-1 text-sm"
-        >
-          <option value="enabled">Ativas</option>
-          <option value="all">Todas</option>
-        </select>
-        <select
-          value={period}
-          onChange={e => setPeriod(e.target.value)}
-          className="border rounded px-2 py-1 text-sm"
-        >
-          <option value="last30">Últimos 30 dias</option>
-          {monthsOptions.map(opt => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
-      </div>
-    </div>
-
-    <div className="card-body" style={{ position: 'relative' }}>
-      {loading && (
-        <div className="loading-overlay">
-          <div className="flex flex-col items-center">
-            <div className="spinner"></div>
-            <div className="loading-text">Carregando dados…</div>
-          </div>
-        </div>
-      )}
-
-      <div className="table-campaigns-wrapper">
-        <table className="table-campaigns">
-          <thead>
-            <tr>
-              <th>Campanha</th>
-              <th>Tipo</th>
-              <th className="cell-right">Clicks</th>
-              <th className="cell-right">%</th>
-              <th className="cell-right">Custo total</th>
-              <th className="cell-right">Custo médio</th>
-              <th className="cell-right">Conv. %</th>
-              <th className="cell-right">Custo Conv.</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows?.map((r, i) => (
-              <tr key={i}>
-                <td>{r.name}</td>
-                <td>{r.type}</td>
-                <td className="cell-right">{r.clicks.toLocaleString('pt-BR')}</td>
-                <td className="cell-right">{formatPct2(r.interaction_rate)}</td>
-                <td className="cell-right">{formatBRL2(r.cost_total)}</td>
-                <td className="cell-right">{formatBRL2(r.avg_cpc)}</td>
-                <td className="cell-right">{formatPct2(r.conv_rate)}</td>
-                <td className="cell-right">{formatBRL2(r.cost_per_conv)}</td>
-              </tr>
+    <div className="card card-campaigns" style={{ position: 'relative' }}>
+      <div className="card-header flex items-center justify-between">
+        <div className="flex items-center gap-2">Performance de Campanhas</div>
+        <div className="flex items-center gap-2">
+          <select
+            value={status}
+            onChange={e => setStatus(e.target.value)}
+            className="border rounded px-2 py-1 text-sm"
+          >
+            <option value="enabled">Ativas</option>
+            <option value="all">Todas</option>
+          </select>
+          <select
+            value={period}
+            onChange={e => setPeriod(e.target.value)}
+            className="border rounded px-2 py-1 text-sm"
+          >
+            <option value="last30">Últimos 30 dias</option>
+            {monthsOptions.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
+          </select>
+        </div>
+      </div>
 
-            {data.total && (
+      <div className="card-body" style={{ position: 'relative' }}>
+        {loading && (
+          <div className="loading-overlay">
+            <div className="flex flex-col items-center">
+              <div className="spinner"></div>
+              <div className="loading-text">Carregando dados…</div>
+            </div>
+          </div>
+        )}
+
+        <div className="table-campaigns-wrapper">
+          <table className="table-campaigns">
+            <thead>
               <tr>
-                <td><strong>Total</strong></td>
-                <td>—</td>
-                <td className="cell-right"><strong>{data.total.clicks.toLocaleString('pt-BR')}</strong></td>
-                <td className="cell-right"><strong>{formatPct2(data.total.interaction_rate)}</strong></td>
-                <td className="cell-right"><strong>{formatBRL2(data.total.cost_total)}</strong></td>
-                <td className="cell-right"><strong>{formatBRL2(data.total.avg_cpc)}</strong></td>
-                <td className="cell-right"><strong>{formatPct2(data.total.conv_rate)}</strong></td>
-                <td className="cell-right"><strong>{formatBRL2(data.total.cost_per_conv)}</strong></td>
+                <th>Campanha</th>
+                <th>Tipo</th>
+                <th className="cell-right">Clicks</th>
+                <th className="cell-right">%</th>
+                <th className="cell-right">Custo total</th>
+                <th className="cell-right">Custo médio</th>
+                <th className="cell-right">Conv. %</th>
+                <th className="cell-right">Custo Conv.</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.rows
+                // Se "Ativas", mostra só ELIGIBLE/LIMITED; se "Todas", mostra tudo.
+                ?.filter(r =>
+                  status === 'enabled'
+                    ? ['ELIGIBLE', 'LIMITED'].includes(r.primary_status || r.status || '')
+                    : true
+                )
+                .map((r, i) => (
+                  <tr key={i}>
+                    <td>{r.name}</td>
+                    <td>{r.type}</td>
+                    <td className="cell-right">{r.clicks.toLocaleString('pt-BR')}</td>
+                    <td className="cell-right">{formatPct2(r.interaction_rate)}</td>
+                    <td className="cell-right">{formatBRL2(r.cost_total)}</td>
+                    <td className="cell-right">{formatBRL2(r.avg_cpc)}</td>
+                    <td className="cell-right">{formatPct2(r.conv_rate)}</td>
+                    <td className="cell-right">{formatBRL2(r.cost_per_conv)}</td>
+                  </tr>
+                ))}
+
+              {data.total && (
+                <tr>
+                  <td><strong>Total</strong></td>
+                  <td>—</td>
+                  <td className="cell-right"><strong>{data.total.clicks.toLocaleString('pt-BR')}</strong></td>
+                  <td className="cell-right"><strong>{formatPct2(data.total.interaction_rate)}</strong></td>
+                  <td className="cell-right"><strong>{formatBRL2(data.total.cost_total)}</strong></td>
+                  <td className="cell-right"><strong>{formatBRL2(data.total.avg_cpc)}</strong></td>
+                  <td className="cell-right"><strong>{formatPct2(data.total.conv_rate)}</strong></td>
+                  <td className="cell-right"><strong>{formatBRL2(data.total.cost_per_conv)}</strong></td>
+                </tr>
+              )}
+            </tbody>
+
+          </table>
+        </div>
       </div>
     </div>
-  </div>
-)
+  )
 }
 
 function NetworksBreakdown() {
@@ -1751,46 +1764,46 @@ function Dashboard() {
   }, [range.start, range.end])
 
   return (
-  <div className="h-full flex flex-col" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
-    <Topbar
-      mode={mode}
-      setMode={setMode}
-      range={range}
-      setCustom={setCustom}
-      custom={custom}
-      onFeedbackClick={() => setFeedbackOpen(true)}
-      user={user}
-      onLogout={logout}
-    />
-    <div className="divider-horizontal w-full" />
-    <div className="flex-1 flex overflow-hidden">
-      <Sidebar active={route} onNavigate={setRoute} />
-      <div className="divider-vertical" />
-      
-      {route === 'sobre' && (
-        <main className="flex-1 overflow-auto p-6">
-          <AboutPage onBack={() => setRoute('inicio')} />
-        </main>
-      )}
+    <div className="h-full flex flex-col" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
+      <Topbar
+        mode={mode}
+        setMode={setMode}
+        range={range}
+        setCustom={setCustom}
+        custom={custom}
+        onFeedbackClick={() => setFeedbackOpen(true)}
+        user={user}
+        onLogout={logout}
+      />
+      <div className="divider-horizontal w-full" />
+      <div className="flex-1 flex overflow-hidden">
+        <Sidebar active={route} onNavigate={setRoute} />
+        <div className="divider-vertical" />
 
-      {route === 'config' && (
-        <main className="flex-1 overflow-auto p-6">
-          <SettingsComingSoon onBack={() => setRoute('inicio')} />
-        </main>
-      )}
+        {route === 'sobre' && (
+          <main className="flex-1 overflow-auto p-6">
+            <AboutPage onBack={() => setRoute('inicio')} />
+          </main>
+        )}
 
-      {route === 'inicio' && (
-        <main className="flex-1 overflow-auto p-6 space-y-6">
-          {/* KPIs */}
-          <section className="kpi-grid">
-            <KPI title="RECEITA" value={loading ? '—' : formatBRLShort(data?.kpis?.receita)} loading={loading} icon="money" />
-            <KPI title="RESERVAS" value={loading ? '—' : data?.kpis?.reservas} loading={loading} icon="bag" />
-            <KPI title="DIÁRIAS" value={loading ? '—' : data?.kpis?.diarias} loading={loading} icon="moon" />
-            <KPI title="CLICKS" value={loading ? '—' : data?.kpis?.clicks?.toLocaleString('pt-BR')} loading={loading} icon="click" />
-            <KPI title="IMPRESSÕES" value={loading ? '—' : data?.kpis?.impressoes?.toLocaleString('pt-BR')} loading={loading} icon="eye" />
-            <KPI title="CPC" value={loading ? '—' : `R$${(data?.kpis?.cpc || 0).toFixed(2).replace('.', ',')}`} loading={loading} icon="coin" />
-            <KPI title="CUSTO" value={loading ? '—' : formatBRLShort(data?.kpis?.custo)} loading={loading} icon="cost" />
-          </section>
+        {route === 'config' && (
+          <main className="flex-1 overflow-auto p-6">
+            <SettingsComingSoon onBack={() => setRoute('inicio')} />
+          </main>
+        )}
+
+        {route === 'inicio' && (
+          <main className="flex-1 overflow-auto p-6 space-y-6">
+            {/* KPIs */}
+            <section className="kpi-grid">
+              <KPI title="RECEITA" value={loading ? '—' : formatBRLShort(data?.kpis?.receita)} loading={loading} icon="money" />
+              <KPI title="RESERVAS" value={loading ? '—' : data?.kpis?.reservas} loading={loading} icon="bag" />
+              <KPI title="DIÁRIAS" value={loading ? '—' : data?.kpis?.diarias} loading={loading} icon="moon" />
+              <KPI title="CLICKS" value={loading ? '—' : data?.kpis?.clicks?.toLocaleString('pt-BR')} loading={loading} icon="click" />
+              <KPI title="IMPRESSÕES" value={loading ? '—' : data?.kpis?.impressoes?.toLocaleString('pt-BR')} loading={loading} icon="eye" />
+              <KPI title="CPC" value={loading ? '—' : `R$${(data?.kpis?.cpc || 0).toFixed(2).replace('.', ',')}`} loading={loading} icon="coin" />
+              <KPI title="CUSTO" value={loading ? '—' : formatBRLShort(data?.kpis?.custo)} loading={loading} icon="cost" />
+            </section>
 
             {/* Receita por UH + painéis */}
             <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -1875,6 +1888,6 @@ function AppContent() {
     return <Login />
   }
 
-return <Dashboard />
+  return <Dashboard />
   return <Dashboard />
 }
