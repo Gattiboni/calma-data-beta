@@ -13,6 +13,7 @@ import unicodedata
 import re
 import uuid
 import base64
+from datetime import datetime, timedelta, timezone
 
 
 # JWT and password hashing
@@ -1481,16 +1482,20 @@ async def ads_campaigns(
                 detail="month deve estar no formato YYYY-MM"
             )
     elif period == "last30":
-        end_dt = datetime.utcnow().date()
+        # últimos 30 dias completos, terminando em ontem (evita dia futuro sem dados)
+        today_utc = datetime.now(timezone.utc).date()
+        end_dt = today_utc - timedelta(days=1)
         start_dt = end_dt - timedelta(days=29)
         start = start_dt.strftime("%Y-%m-%d")
         end = end_dt.strftime("%Y-%m-%d")
     else:
-        # fallback simples: últimos 30 dias se vier period desconhecido
-        end_dt = datetime.utcnow().date()
+        # fallback: mesmos últimos 30 dias completos (termina em ontem)
+        today_utc = datetime.now(timezone.utc).date()
+        end_dt = today_utc - timedelta(days=1)
         start_dt = end_dt - timedelta(days=29)
         start = start_dt.strftime("%Y-%m-%d")
         end = end_dt.strftime("%Y-%m-%d")
+
 
     payload = {
         "rows": [],
@@ -1530,14 +1535,20 @@ async def ads_networks(
         if not start:
             raise HTTPException(status_code=422, detail="month deve estar no formato YYYY-MM")
     elif period == "last30":
-        end_dt = datetime.utcnow().date()
+        # últimos 30 dias completos, terminando em ontem (evita dia futuro sem dados)
+        today_utc = datetime.now(timezone.utc).date()
+        end_dt = today_utc - timedelta(days=1)
         start_dt = end_dt - timedelta(days=29)
-        start, end = start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d")
+        start = start_dt.strftime("%Y-%m-%d")
+        end = end_dt.strftime("%Y-%m-%d")
     else:
-        # fallback para último 30 dias se vier period desconhecido
-        end_dt = datetime.utcnow().date()
+        # fallback: mesmos últimos 30 dias completos (termina em ontem)
+        today_utc = datetime.now(timezone.utc).date()
+        end_dt = today_utc - timedelta(days=1)
         start_dt = end_dt - timedelta(days=29)
-        start, end = start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d")
+        start = start_dt.strftime("%Y-%m-%d")
+        end = end_dt.strftime("%Y-%m-%d")
+
 
     payload = {"start": start, "end": end, "rows": []}
     try:
@@ -1954,29 +1965,4 @@ async def health():
     return {"status": "ok", "integrations": integrations}
 
 
-@app.get("/api/ads-debug")
-def ads_debug():
-    service = ads_client.get_service("GoogleAdsService")
-    customer_id = ADS_CUSTOMER_ID.replace("-", "")
-    query = """
-    SELECT
-      campaign.name,
-      campaign.status,
-      campaign.primary_status,
-      metrics.impressions,
-      metrics.clicks
-    FROM campaign
-    WHERE metrics.impressions >= 0
-    LIMIT 10
-    """
-    resp = service.search(customer_id=customer_id, query=query)
-    rows = []
-    for r in resp:
-        rows.append({
-            "name": r.campaign.name,
-            "status": r.campaign.status.name,
-            "primary_status": r.campaign.primary_status.name,
-            "impressions": int(r.metrics.impressions or 0),
-            "clicks": int(r.metrics.clicks or 0)
-        })
-    return {"rows": rows}
+
