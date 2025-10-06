@@ -720,11 +720,8 @@ def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
     service = ads_client.get_service("GoogleAdsService")
     customer_id = ADS_CUSTOMER_ID.replace("-", "")
 
-    # Mantemos apenas o filtro de data e atividade
-    conditions = [f"segments.date BETWEEN '{start}' AND '{end}'"]
-    # Inclui apenas campanhas que tiveram impressões no período
-    conditions.append("metrics.impressions > 0")
-
+    # Filtro apenas por data + impressões > 0
+    conditions = [f"segments.date BETWEEN '{start}' AND '{end}'", "metrics.impressions > 0"]
     where_clause = " AND ".join(conditions)
 
     query = f"""
@@ -743,9 +740,25 @@ def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
           metrics.conversions_from_interactions_rate
         FROM campaign
         WHERE {where_clause}
+        ORDER BY metrics.impressions DESC
+        LIMIT 50
     """
 
-    print(f"[DEBUG] GAQL Query (ads_campaigns_filtered):\n{query}")
+    print(f"\n[DEBUG] --- GAQL Query ads_campaigns_filtered ---")
+    print(query)
+
+    try:
+        resp = service.search(customer_id=customer_id, query=query)
+        rows_count = 0
+        for _ in resp:
+            rows_count += 1
+        print(f"[DEBUG] Rows returned: {rows_count}")
+        # Reinicia o cursor
+        resp = service.search(customer_id=customer_id, query=query)
+    except Exception as e:
+        print(f"[ERROR] Google Ads query failed: {e}")
+        return {"rows": [], "total": None}
+
 
 
     resp = service.search(customer_id=customer_id, query=query)
