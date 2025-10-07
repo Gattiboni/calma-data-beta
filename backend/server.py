@@ -727,99 +727,93 @@ def ads_campaign_rows(start: str, end: str) -> Optional[List[Dict[str, Any]]]:
     return rows
 
 def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
+    """
+    Busca campanhas do Google Ads no período informado.
+    Corrige filtro para garantir retorno de campanhas com métricas somadas.
+    """
     if not ads_client or not ADS_CUSTOMER_ID:
-        """
-        Campanhas (Google Ads) no período, agregadas ao nível de campanha.
-        - Mantém apenas linhas com métricas reais (impressões > 0) para garantir retorno útil.
-        - Quando status='enabled', aplica filtro de status no GAQL; caso contrário, traz todas.
-        Retorno: {"rows": [...], "total": {...}}
-        """
-        if not ads_client or not ADS_CUSTOMER_ID:
-            return {"rows": [], "total": None}
+        return {"rows": [], "total": None, "start": start, "end": end, "status": status}
 
-        service = ads_client.get_service("GoogleAdsService")
-        customer_id = ADS_CUSTOMER_ID.replace("-", "")
+    service = ads_client.get_service("GoogleAdsService")
+    customer_id = ADS_CUSTOMER_ID.replace("-", "")
 
-        # Cláusulas
-        conditions = [
-            f"segments.date BETWEEN '{start}' AND '{end}'",
-            "metrics.impressions > 0",  # linhas sem métricas não retornam (boas práticas)
-        ]
-        if status == "enabled":
-            conditions.append("campaign.status = 'ENABLED'")
+    # Condições básicas
+    conditions = [f"segments.date BETWEEN '{start}' AND '{end}'"]
+    if status == "enabled":
+        conditions.append("campaign.status = 'ENABLED'")
+    where_clause = " AND ".join(conditions)
 
-        where_clause = " AND ".join(conditions)
+    # Query corrigida: sem filtro por métricas, com SUM e GROUP BY
+    query = f"""
+        SELECT
+          campaign.id,
+          campaign.name,
+          campaign.advertising_channel_type,
+          campaign.status,
+          campaign.primary_status,
+          SUM(metrics.clicks) AS clicks,
+          SUM(metrics.impressions) AS impressions,
+          SUM(metrics.interactions) AS interactions,
+          SAFE_DIVIDE(SUM(metrics.interactions), SUM(metrics.impressions)) AS interaction_rate,
+          SUM(metrics.cost_micros) AS cost_micros,
+          SAFE_DIVIDE(SUM(metrics.cost_micros), SUM(metrics.clicks)) AS average_cpc,
+          SUM(metrics.conversions) AS conversions,
+          SAFE_DIVIDE(SUM(metrics.conversions), SUM(metrics.interactions)) AS conv_rate
+        FROM campaign
+        WHERE {where_clause}
+        GROUP BY
+          campaign.id,
+          campaign.name,
+          campaign.advertising_channel_type,
+          campaign.status,
+          campaign.primary_status
+        ORDER BY SUM(metrics.cost_micros) DESC
+        LIMIT 100
+    """
 
-        query = f"""
-            SELECT
-              campaign.name,
-              campaign.advertising_channel_type,
-              campaign.status,
-              campaign.primary_status,
-              metrics.clicks,
-              metrics.impressions,
-              metrics.interactions,
-              metrics.interaction_rate,
-              metrics.cost_micros,
-              metrics.average_cpc,
-              metrics.conversions,
-              metrics.conversions_from_interactions_rate
-            FROM campaign
-            WHERE {where_clause}
-            ORDER BY metrics.cost_micros DESC
-            LIMIT 1000
-        """
+    print(f"\n[DEBUG] --- GAQL Query ads_campaigns_filtered ---\n{query}")
 
-        print(f"[DEBUG] GAQL (ads_campaigns_filtered):\n{query}")
+    try:
+        resp = service.search(customer_id=customer_id, query=query)
+    except Exception as e:
+        print(f"[ERROR] Google Ads query failed: {e}")
+        return {"rows": [], "total": None, "start": start, "end": end, "status": status}
 
-        try:
-            resp = service.search(customer_id=customer_id, query=query)
-        except Exception as e:
-            print(f"[ERROR] ads_campaigns_filtered: {e}")
-            return {"rows": [], "total": None}
+    rows = []
+    totals = {"clicks": 0, "impressions": 0, "interactions": 0, "cost": 0.0, "conversions": 0.0}
 
-        rows = []
-        totals = {"clicks": 0, "impressions": 0, "interactions": 0, "cost": 0.0, "conversions": 0.0}
+    for r in resp:
+        clicks = int(r.clicks.value or 0)
+        imps = int(r.impressions.value or 0)
+        inter = int(r.interactions.value or 0)
+        cost = (r.cost_micros.value or 0) / 1_000_000
+        avg_cpc = (r.average_cpc.value or 0) / 1_000_000
+        conv = float(r.conversions.value or 0)
+        ir = float(r.interaction_rate.value or 0)
+        cfr = float(r.conv_rate.value or 0)
+        cpcv = (cost / conv) if conv > 0 else 0.0
 
-        for r in resp:
-            clicks = int(r.metrics.clicks or 0)
-            imps = int(r.metrics.impressions or 0)
-            inter = int(r.metrics.interactions or 0)
-            cost = (r.metrics.cost_micros or 0) / 1_000_000
-            avg_cpc = (r.metrics.average_cpc or 0) / 1_000_000
-            conv = float(r.metrics.conversions or 0)
-            ir = float(r.metrics.interaction_rate or 0)
-            cfr = float(r.metrics.conversions_from_interactions_rate or 0)
+        rows.append({
+            "name": r.campaign.name,
+            "type": r.campaign.advertising_channel_type.name,
+            "clicks": clicks,
+            "interaction_rate": ir,
+            "cost_total": round(cost, 2),
+            "avg_cpc": round(avg_cpc if avg_cpc else (cost / clicks if clicks else 0), 2),
+            "conv_rate": cfr,
+            "cost_per_conv": round(cpcv, 2),
+            "status": r.campaign.status.name,
+            "primary_status": r.campaign.primary_status.name,
+        })
 
-            # Backfills defensivos caso a API retorne 0 para algumas taxas
-            if ir == 0 and imps > 0 and inter > 0:
-                ir = inter / imps
-            if cfr == 0 and inter > 0 and conv > 0:
-                cfr = conv / inter
+        totals["clicks"] += clicks
+        totals["impressions"] += imps
+        totals["interactions"] += inter
+        totals["cost"] += cost
+        totals["conversions"] += conv
 
-            cpcv = (cost / conv) if conv > 0 else 0.0
+    return {"rows": rows, "total": totals, "start": start, "end": end, "status": status}
 
-            rows.append({
-                "name": r.campaign.name,
-                "type": getattr(r.campaign.advertising_channel_type, "name", str(r.campaign.advertising_channel_type)),
-                "clicks": clicks,
-                "interaction_rate": ir,
-                "cost_total": round(cost, 2),
-                "avg_cpc": round(avg_cpc if avg_cpc else (cost / clicks if clicks else 0), 2),
-                "conv_rate": cfr,
-                "cost_per_conv": round(cpcv, 2),
-                "status": getattr(r.campaign.status, "name", str(r.campaign.status)),
-                "primary_status": getattr(r.campaign.primary_status, "name", str(r.campaign.primary_status)),
-            })
-
-            totals["clicks"] += clicks
-            totals["impressions"] += imps
-            totals["interactions"] += inter
-            totals["cost"] += cost
-            totals["conversions"] += conv
-
-        rows.sort(key=lambda x: x["cost_total"], reverse=True)
-        return {"rows": rows, "total": totals}
 
 
 def ads_networks_breakdown(start: str, end: str):
