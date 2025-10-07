@@ -913,12 +913,16 @@ function CampaignsTable() {
 
   // Filtro visual
   const filteredRows = useMemo(() => {
-    return data.rows?.filter(r =>
-      status === 'enabled'
+    return (data.rows || [])
+      // 1️⃣ Se "Ativas", mostra só as com status válido
+      .filter(r => status === 'enabled'
         ? ['ENABLED', 'ELIGIBLE', 'LIMITED'].includes(r.status || r.primary_status)
         : true
-    ) || []
-  }, [data.rows, status])
+      )
+      // 2️⃣ Exclui campanhas que não têm dados (zeradas)
+      .filter(r => (r.clicks > 0 || r.cost_total > 0 || r.conversions > 0));
+  }, [data.rows, status]);
+
 
   // Total recalculado
   const filteredTotal = useMemo(() => {
