@@ -885,7 +885,6 @@ function CampaignsTable() {
   async function load() {
     setLoading(true)
     try {
-      // Sempre busca TODAS as campanhas. O filtro "Ativas/Todas" será só no front.
       const params = period === 'last30'
         ? { status: 'all', period }
         : { status: 'all', month: period }
@@ -897,10 +896,39 @@ function CampaignsTable() {
     }
   }
 
-
-
-
   useEffect(() => { load() }, [period])
+
+  // Tradução do status
+  const translateStatus = (s) => {
+    switch (s) {
+      case 'ENABLED': return 'Ativa'
+      case 'PAUSED': return 'Pausada'
+      case 'REMOVED': return 'Removida'
+      case 'ENDED': return 'Encerrada'
+      case 'ELIGIBLE': return 'Elegível'
+      case 'LIMITED': return 'Limitada'
+      default: return s || '—'
+    }
+  }
+
+  // Filtro visual
+  const filteredRows = useMemo(() => {
+    return data.rows?.filter(r =>
+      status === 'enabled'
+        ? ['ENABLED', 'ELIGIBLE', 'LIMITED'].includes(r.status || r.primary_status)
+        : true
+    ) || []
+  }, [data.rows, status])
+
+  // Total recalculado
+  const filteredTotal = useMemo(() => {
+    return filteredRows.reduce((acc, r) => {
+      acc.clicks += r.clicks || 0
+      acc.cost_total += r.cost_total || 0
+      acc.conversions += r.conversions || 0
+      return acc
+    }, { clicks: 0, cost_total: 0, conversions: 0 })
+  }, [filteredRows])
 
   return (
     <div className="card card-campaigns" style={{ position: 'relative' }}>
@@ -943,9 +971,9 @@ function CampaignsTable() {
             <thead>
               <tr>
                 <th>Campanha</th>
+                <th>Status</th>
                 <th>Tipo</th>
                 <th className="cell-right">Clicks</th>
-                <th className="cell-right">%</th>
                 <th className="cell-right">Custo total</th>
                 <th className="cell-right">Custo médio</th>
                 <th className="cell-right">Conv. %</th>
@@ -953,46 +981,40 @@ function CampaignsTable() {
               </tr>
             </thead>
             <tbody>
-              {data.rows
-                // Se "Ativas", mostra só ELIGIBLE/LIMITED; se "Todas", mostra tudo.
-                ?.filter(r =>
-                  status === 'enabled'
-                    ? ['ELIGIBLE', 'LIMITED'].includes(r.primary_status || r.status || '')
-                    : true
-                )
-                .map((r, i) => (
-                  <tr key={i}>
-                    <td>{r.name}</td>
-                    <td>{r.type}</td>
-                    <td className="cell-right">{r.clicks.toLocaleString('pt-BR')}</td>
-                    <td className="cell-right">{formatPct2(r.interaction_rate)}</td>
-                    <td className="cell-right">{formatBRL2(r.cost_total)}</td>
-                    <td className="cell-right">{formatBRL2(r.avg_cpc)}</td>
-                    <td className="cell-right">{formatPct2(r.conv_rate)}</td>
-                    <td className="cell-right">{formatBRL2(r.cost_per_conv)}</td>
-                  </tr>
-                ))}
+              {filteredRows.map((r, i) => (
+                <tr key={i}>
+                  <td>{r.name}</td>
+                  <td>{translateStatus(r.status)}</td>
+                  <td>{r.type}</td>
+                  <td className="cell-right">{r.clicks.toLocaleString('pt-BR')}</td>
+                  <td className="cell-right">{formatBRL2(r.cost_total)}</td>
+                  <td className="cell-right">{formatBRL2(r.avg_cpc)}</td>
+                  <td className="cell-right">{formatPct2(r.conv_rate)}</td>
+                  <td className="cell-right">{formatBRL2(r.cost_per_conv)}</td>
+                </tr>
+              ))}
 
-              {data.total && (
+              {filteredRows.length > 0 && (
                 <tr>
                   <td><strong>Total</strong></td>
                   <td>—</td>
-                  <td className="cell-right"><strong>{data.total.clicks.toLocaleString('pt-BR')}</strong></td>
-                  <td className="cell-right"><strong>{formatPct2(data.total.interaction_rate)}</strong></td>
-                  <td className="cell-right"><strong>{formatBRL2(data.total.cost_total)}</strong></td>
-                  <td className="cell-right"><strong>{formatBRL2(data.total.avg_cpc)}</strong></td>
-                  <td className="cell-right"><strong>{formatPct2(data.total.conv_rate)}</strong></td>
-                  <td className="cell-right"><strong>{formatBRL2(data.total.cost_per_conv)}</strong></td>
+                  <td>—</td>
+                  <td className="cell-right"><strong>{filteredTotal.clicks.toLocaleString('pt-BR')}</strong></td>
+                  <td className="cell-right"><strong>{formatBRL2(filteredTotal.cost_total)}</strong></td>
+                  <td className="cell-right">—</td>
+                  <td className="cell-right">—</td>
+                  <td className="cell-right">—</td>
                 </tr>
               )}
             </tbody>
-
           </table>
         </div>
       </div>
     </div>
   )
 }
+
+
 
 function NetworksBreakdown() {
   const [period, setPeriod] = useState('last30')

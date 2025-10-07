@@ -251,23 +251,26 @@ body {
   border-collapse: separate;
   border-spacing: 0;
   font-family: Inter, system-ui, sans-serif;
+  font-size: 12px; /* 🔹 Fonte menor para toda a tabela */
 }
 
 .table-campaigns thead th {
   position: sticky;
   top: 0;
-  background: #FAFAF7; /* surface */
-  /* color: #6D6A69; */
-  border-bottom: 2px solid #C4A981; /* primary */
-  padding: 10px 12px;
+  background: #FAFAF7;
+  border-bottom: 2px solid #C4A981;
+  padding: 6px 8px; /* 🔹 Espaçamento reduzido */
   font-weight: 600;
   z-index: 1;
+  white-space: nowrap; /* 🔹 Evita quebra nas colunas */
 }
 
 .table-campaigns tbody td {
-  padding: 10px 12px;
+  padding: 6px 8px; /* 🔹 Espaçamento reduzido */
   border-bottom: 1px solid #ECECEC;
   color: #6D6A69;
+  white-space: nowrap; /* 🔹 Mantém colunas compactas */
+  font-variant-numeric: tabular-nums; /* 🔹 Alinha números */
 }
 
 .table-campaigns tbody tr:nth-child(odd) {
@@ -279,7 +282,7 @@ body {
 }
 
 .table-campaigns tfoot td {
-  padding: 12px;
+  padding: 8px;
   border-top: 2px solid #C4A981;
   font-weight: 700;
   background: #FAFAF7;
@@ -287,6 +290,28 @@ body {
 
 .cell-right {
   text-align: right;
+}
+
+/* 🔹 Largura mínima para cada coluna */
+.table-campaigns th:nth-child(1),
+.table-campaigns td:nth-child(1) {
+  width: 180px; /* Campanha */
+}
+
+.table-campaigns th:nth-child(2),
+.table-campaigns td:nth-child(2) {
+  width: 90px; /* Status */
+  text-align: center;
+}
+
+.table-campaigns th:nth-child(3),
+.table-campaigns td:nth-child(3) {
+  width: 90px; /* Tipo */
+}
+
+.table-campaigns th.cell-right,
+.table-campaigns td.cell-right {
+  width: 80px; /* Colunas numéricas */
 }
 
 .badge-filter {
@@ -299,11 +324,12 @@ body {
 }
 
 .table-campaigns-wrapper {
-  max-height: 70vh;     /* scroll se passar disso */
-  overflow-y: auto;     /* cria rolagem vertical se precisar */
-  height: auto;         /* não força altura fixa */
-  display: block;       /* garante comportamento normal de bloco */
+  max-height: 70vh;
+  overflow-y: auto;
+  height: auto;
+  display: block;
 }
+
 
 
 
