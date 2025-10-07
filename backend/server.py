@@ -728,10 +728,9 @@ def ads_campaign_rows(start: str, end: str) -> Optional[List[Dict[str, Any]]]:
 
 def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
     """
-    Retorna campanhas agregadas no período, com fallback para evitar 0 linhas.
-    - Usa apenas métricas somáveis (clicks, impressions, cost_micros, conversions).
-    - Calcula taxas no Python.
-    - Se a 1ª consulta voltar vazia, tenta sem filtro de status e sem HAVING.
+    Retorna campanhas agregadas no período de forma estável.
+    Remove campos frágeis (interactions/interaction_rate/conversions_from_interactions_rate).
+    Calcula taxas no Python.
     """
     if not ads_client or not ADS_CUSTOMER_ID:
         return {"rows": [], "total": None, "start": start, "end": end, "status": status}
@@ -739,120 +738,62 @@ def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
     service = ads_client.get_service("GoogleAdsService")
     customer_id = ADS_CUSTOMER_ID.replace("-", "")
 
-    def run_query(q: str):
-        try:
-            return list(service.search(customer_id=customer_id, query=q))
-        except Exception as e:
-            print(f"[ADS] GAQL error: {e}")
-            return []
-
-    # 1) Base WHERE por datas
-    where = [f"segments.date BETWEEN '{start}' AND '{end}'"]
-    # 2) Filtro de status apenas se o front pedir “enabled”
+    # WHERE básico por data; aplica status 'ENABLED' só quando pedido
+    where_parts = [f"segments.date BETWEEN '{start}' AND '{end}'"]
     if status == "enabled":
-        where.append("campaign.status = 'ENABLED'")
-    where_clause = " AND ".join(where)
+        where_parts.append("campaign.status = 'ENABLED'")
+    where_clause = " AND ".join(where_parts)
 
-    # Consulta estável (agregada por campanha)
-    base_select = """
+    # Consulta estável: só métricas universalmente suportadas
+    query = f"""
         SELECT
-          campaign.id,
           campaign.name,
           campaign.advertising_channel_type,
           campaign.status,
           campaign.primary_status,
-          SUM(metrics.clicks) AS clicks,
-          SUM(metrics.impressions) AS impressions,
-          SUM(metrics.cost_micros) AS cost_micros,
-          SUM(metrics.conversions) AS conversions
+          metrics.clicks,
+          metrics.impressions,
+          metrics.cost_micros,
+          metrics.average_cpc,
+          metrics.conversions
         FROM campaign
-    """
-
-    # Q1: versão normal com HAVING (garante pelo menos 1 impressão no período)
-    q1 = f"""
-        {base_select}
         WHERE {where_clause}
-        GROUP BY
-          campaign.id,
-          campaign.name,
-          campaign.advertising_channel_type,
-          campaign.status,
-          campaign.primary_status
-        HAVING SUM(metrics.impressions) > 0
-        ORDER BY SUM(metrics.cost_micros) DESC
+        ORDER BY metrics.cost_micros DESC
         LIMIT 200
     """
 
-    rows_proto = run_query(q1)
+    print(f"[DEBUG] GAQL ads_campaigns_filtered:\n{query}")
 
-    # Fallback Q2: sem HAVING, para não excluir nada por métrica
-    if not rows_proto:
-        q2 = f"""
-            {base_select}
-            WHERE {where_clause}
-            GROUP BY
-              campaign.id,
-              campaign.name,
-              campaign.advertising_channel_type,
-              campaign.status,
-              campaign.primary_status
-            ORDER BY SUM(metrics.cost_micros) DESC
-            LIMIT 200
-        """
-        rows_proto = run_query(q2)
+    try:
+        resp = service.search(customer_id=customer_id, query=query)
+    except Exception as e:
+        # Se a API recusou por qualquer motivo, devolve estrutura consistente
+        print(f"[ADS] campaigns query failed: {e}")
+        return {"rows": [], "total": None, "start": start, "end": end, "status": status}
 
-    # Fallback Q3: ignora status (caso o filtro “enabled” esvazie)
-    if not rows_proto and status == "enabled":
-        q3 = f"""
-            {base_select}
-            WHERE segments.date BETWEEN '{start}' AND '{end}'
-            GROUP BY
-              campaign.id,
-              campaign.name,
-              campaign.advertising_channel_type,
-              campaign.status,
-              campaign.primary_status
-            ORDER BY SUM(metrics.cost_micros) DESC
-            LIMIT 200
-        """
-        rows_proto = run_query(q3)
-
-    rows: list[dict] = []
+    rows = []
     totals = {"clicks": 0, "impressions": 0, "cost": 0.0, "conversions": 0.0}
 
-    for r in rows_proto:
-        # campos agregados vêm como valores simples nas versões recentes do client
-        try:
-            clicks = int(getattr(r, "clicks").value if hasattr(r, "clicks") else r.clicks)
-        except Exception:
-            clicks = int(r.metrics.clicks) if hasattr(r, "metrics") else 0
+    for r in resp:
+        clicks = int(r.metrics.clicks or 0)
+        imps = int(r.metrics.impressions or 0)
+        cost = (r.metrics.cost_micros or 0) / 1_000_000
+        conv = float(r.metrics.conversions or 0)
 
-        try:
-            impressions = int(getattr(r, "impressions").value if hasattr(r, "impressions") else r.impressions)
-        except Exception:
-            impressions = int(r.metrics.impressions) if hasattr(r, "metrics") else 0
-
-        try:
-            cost_micros = int(getattr(r, "cost_micros").value if hasattr(r, "cost_micros") else r.cost_micros)
-        except Exception:
-            cost_micros = int(r.metrics.cost_micros) if hasattr(r, "metrics") else 0
-
-        try:
-            conversions = float(getattr(r, "conversions").value if hasattr(r, "conversions") else r.conversions)
-        except Exception:
-            conversions = float(r.metrics.conversions) if hasattr(r, "metrics") else 0.0
-
-        cost = cost_micros / 1_000_000.0
+        # Cálculos no Python (evita campos frágeis)
         avg_cpc = (cost / clicks) if clicks > 0 else 0.0
-        conv_rate = (conversions / clicks) if clicks > 0 else 0.0
-        cpa = (cost / conversions) if conversions > 0 else 0.0
+        conv_rate = (conv / clicks) if clicks > 0 else 0.0
+        cpa = (cost / conv) if conv > 0 else 0.0
 
         rows.append({
             "name": r.campaign.name,
-            "type": getattr(r.campaign.advertising_channel_type, "name",
-                            str(r.campaign.advertising_channel_type)),
+            "type": (
+                r.campaign.advertising_channel_type.name
+                if hasattr(r.campaign.advertising_channel_type, "name")
+                else str(r.campaign.advertising_channel_type)
+            ),
             "clicks": clicks,
-            "interaction_rate": 0,         # não usamos interactions aqui
+            "interaction_rate": 0,  # não usamos mais interactions
             "cost_total": round(cost, 2),
             "avg_cpc": round(avg_cpc, 2),
             "conv_rate": round(conv_rate, 4),
@@ -862,18 +803,17 @@ def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
         })
 
         totals["clicks"] += clicks
-        totals["impressions"] += impressions
+        totals["impressions"] += imps
         totals["cost"] += cost
-        totals["conversions"] += conversions
+        totals["conversions"] += conv
 
-    # Ordena pelo maior investimento
     rows.sort(key=lambda x: x["cost_total"], reverse=True)
 
-    # Se ainda não veio nada, retornamos estrutura vazia porém consistente
     if not rows:
         return {"rows": [], "total": None, "start": start, "end": end, "status": status}
 
     return {"rows": rows, "total": totals, "start": start, "end": end, "status": status}
+
 
 
 def ads_networks_breakdown(start: str, end: str):
