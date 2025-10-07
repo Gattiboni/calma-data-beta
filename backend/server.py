@@ -728,8 +728,8 @@ def ads_campaign_rows(start: str, end: str) -> Optional[List[Dict[str, Any]]]:
 
 def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
     """
-    Busca campanhas do Google Ads no período informado.
-    Corrige filtro para garantir retorno de campanhas com métricas somadas.
+    Busca campanhas agregadas do Google Ads no período informado.
+    Corrige o uso de SUM() e remove filtros diários.
     """
     if not ads_client or not ADS_CUSTOMER_ID:
         return {"rows": [], "total": None, "start": start, "end": end, "status": status}
@@ -737,13 +737,13 @@ def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
     service = ads_client.get_service("GoogleAdsService")
     customer_id = ADS_CUSTOMER_ID.replace("-", "")
 
-    # Condições básicas
+    # Condições
     conditions = [f"segments.date BETWEEN '{start}' AND '{end}'"]
     if status == "enabled":
         conditions.append("campaign.status = 'ENABLED'")
     where_clause = " AND ".join(conditions)
 
-    # Query corrigida: sem filtro por métricas, com SUM e GROUP BY
+    # Query simplificada e funcional
     query = f"""
         SELECT
           campaign.id,
@@ -753,12 +753,8 @@ def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
           campaign.primary_status,
           SUM(metrics.clicks) AS clicks,
           SUM(metrics.impressions) AS impressions,
-          SUM(metrics.interactions) AS interactions,
-          SAFE_DIVIDE(SUM(metrics.interactions), SUM(metrics.impressions)) AS interaction_rate,
           SUM(metrics.cost_micros) AS cost_micros,
-          SAFE_DIVIDE(SUM(metrics.cost_micros), SUM(metrics.clicks)) AS average_cpc,
-          SUM(metrics.conversions) AS conversions,
-          SAFE_DIVIDE(SUM(metrics.conversions), SUM(metrics.interactions)) AS conv_rate
+          SUM(metrics.conversions) AS conversions
         FROM campaign
         WHERE {where_clause}
         GROUP BY
@@ -767,6 +763,7 @@ def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
           campaign.advertising_channel_type,
           campaign.status,
           campaign.primary_status
+        HAVING SUM(metrics.impressions) > 0
         ORDER BY SUM(metrics.cost_micros) DESC
         LIMIT 100
     """
@@ -780,39 +777,37 @@ def ads_campaigns_filtered(start: str, end: str, status: str = "enabled"):
         return {"rows": [], "total": None, "start": start, "end": end, "status": status}
 
     rows = []
-    totals = {"clicks": 0, "impressions": 0, "interactions": 0, "cost": 0.0, "conversions": 0.0}
+    totals = {"clicks": 0, "impressions": 0, "cost": 0.0, "conversions": 0.0}
 
     for r in resp:
         clicks = int(r.clicks.value or 0)
         imps = int(r.impressions.value or 0)
-        inter = int(r.interactions.value or 0)
         cost = (r.cost_micros.value or 0) / 1_000_000
-        avg_cpc = (r.average_cpc.value or 0) / 1_000_000
         conv = float(r.conversions.value or 0)
-        ir = float(r.interaction_rate.value or 0)
-        cfr = float(r.conv_rate.value or 0)
-        cpcv = (cost / conv) if conv > 0 else 0.0
+        avg_cpc = (cost / clicks) if clicks > 0 else 0
+        conv_rate = (conv / clicks) if clicks > 0 else 0
+        cost_per_conv = (cost / conv) if conv > 0 else 0
 
         rows.append({
             "name": r.campaign.name,
             "type": r.campaign.advertising_channel_type.name,
             "clicks": clicks,
-            "interaction_rate": ir,
+            "interaction_rate": 0,
             "cost_total": round(cost, 2),
-            "avg_cpc": round(avg_cpc if avg_cpc else (cost / clicks if clicks else 0), 2),
-            "conv_rate": cfr,
-            "cost_per_conv": round(cpcv, 2),
+            "avg_cpc": round(avg_cpc, 2),
+            "conv_rate": round(conv_rate, 4),
+            "cost_per_conv": round(cost_per_conv, 2),
             "status": r.campaign.status.name,
             "primary_status": r.campaign.primary_status.name,
         })
 
         totals["clicks"] += clicks
         totals["impressions"] += imps
-        totals["interactions"] += inter
         totals["cost"] += cost
         totals["conversions"] += conv
 
     return {"rows": rows, "total": totals, "start": start, "end": end, "status": status}
+
 
 
 
